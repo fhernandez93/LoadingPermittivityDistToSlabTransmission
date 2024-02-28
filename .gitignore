@@ -3,3 +3,5 @@
 /data
 .env
 *.hdf5
+.DS_Store
+*.zip
