@@ -7,17 +7,28 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import date
 import os
+from tidy3d.plugins.dispersion import FastDispersionFitter, AdvancedFastFitterParam
+import trimesh as tri
 
 
 class loadAndRunStructure:
     """
     This class takes a disordered network permitivity distribution file and calculate the transmission coefficients using Tidy3d
+    File types can be .stl for structures or .h5 for permittivity distributions. 
+    If .stl is in place one must specify if we're working with constant index or specify a link with the refractive index dist. 
+
+    flux_monitor records the transmitted flux through the slab
+    flux_time_monitor Records time-dependent transmitted flux through the slab
+    field_time_monitors record the E-fields throughout simulation volume at t=run_time/2 and t=run_time
+    field_time_monitor_output Records E-fields at the output surface at Nt equally spaced times from 0 to run_time
     """
 
     def __init__(self, key:str="", file_path:str = "", direction:str="z", 
                  lambda_range: list= [], box_size:float = 0, runtime: int = 0, 
-                 width:float=0.4, freqs:int=400,permittivity:float=0,
-                 min_steps_per_lambda:int = 20):
+                 width:float=0.4, freqs:int=400,permittivity:float=1,
+                 min_steps_per_lambda:int = 20, permittivity_dist:str="", scaling:float=1.0,shuoff_condtion:float=1e-7,
+                 sim_mode:str = "transmission", subpixel:bool=True,extra_monitors:list=[], extra_sources:list=[]
+                 ):
         if not key:
             raise Exception("No API key was provided")
         else:
@@ -26,24 +37,44 @@ class loadAndRunStructure:
         if not file_path:
             raise Exception("No structure was provided")
         
-        #import structure permittivity distribution 
+        self.file_format = Path(file_path).suffix
+        self.permittivity_dist = permittivity_dist
+        
+        if not  self.file_format in [".h5",".stl"]:
+            raise Exception("No .h5 or .stl structure was provided")
+        
+        
+        #import structure or permittivity distribution 
         self.file = file_path
         self.structure_name = Path(file_path).stem
         # Load HDF5 file
-        with h5py.File(self.file, 'r') as f:
-            self.permittivity_raw = np.array(f['epsilon'])
+        if  self.file_format == ".h5":
+            with h5py.File(self.file, 'r') as f:
+                self.permittivity_raw = np.array(f['epsilon'])
+
+        
         
         self.min_steps_per_lambda = min_steps_per_lambda
-        self.permittivity_value =  np.max(self.permittivity_raw) if permittivity == 0 else permittivity
+        if self.file_format == ".h5":
+            self.permittivity_value =  np.max(self.permittivity_raw) if permittivity == 0 else permittivity 
+        else:
+            self.permittivity_value = permittivity
         
+        self.sim_mode = sim_mode
+        self.subpixel = subpixel
+        self.extra_monitors = extra_monitors
+        self.extra_sources = extra_sources
+            
+        self.scaling = scaling
         self.direction = direction
         self.dPML = 1.0
-        self.freq_range = td.C_0/np.array(lambda_range)
         self.lambda_range =np.array(lambda_range)
+        self.freq_range = td.C_0/np.array(self.lambda_range)
         self.freq0 = np.sum(self.freq_range)/2 #central frequency of the source/monitors
         self.lambda0 = td.C_0 / self.freq0
         self.freqw  = width * (self.freq_range[1] - self.freq_range[0]) #This is the width of the gaussian source      
         # runtime
+        self.shutoff = shuoff_condtion
         self.runtime = runtime
         self.t_stop = self.runtime/self.freqw
         self.Nfreq = freqs
@@ -51,15 +82,15 @@ class loadAndRunStructure:
         self.monitor_lambdas = td.constants.C_0 / self.monitor_freqs
         self.period = 1.0 # um, period along x- and y- direction
         # Grid size # um
-        self.dl = (self.lambda_range[1] / 30) / np.sqrt(self.permittivity_value) # 30 grids per smallest wavelength in medium
+        self.dl = (self.lambda_range[1] / self.min_steps_per_lambda) / np.sqrt(self.permittivity_value) #  grids per smallest wavelength in medium
         
         # space between slabs and PML
-        self.spacing = self.dPML * lambda_range[0]
-        self.t_slab=box_size
+        self.spacing = self.dPML * self.lambda_range[0]
+        self.t_slab=box_size*scaling
         self.sim_size = self.Lx, self.Ly, self.Lz = (
-                                      self.t_slab+self.spacing*2+2 if direction == "x" else self.t_slab,
-                                      self.t_slab+self.spacing*2+2 if direction == "y" else self.t_slab,
-                                      self.t_slab+self.spacing*2+2 if direction == "z" else self.t_slab
+                                      self.t_slab+self.spacing*2 if direction == "x" else self.t_slab,
+                                      self.t_slab+self.spacing*2 if direction == "y" else self.t_slab,
+                                      self.t_slab+self.spacing*2 if direction == "z" else self.t_slab
                                       )
         
         self.sim = self.simulation_definition()
@@ -69,6 +100,8 @@ class loadAndRunStructure:
     def __str__(self):
 
         calculated_data_str = ('Simulation Parameters (wavelengths are expressed in um):\n' +
+                               
+            f'Lx: {self.Lx:.3g} Ly: {self.Ly:.3g} Lz: {self.Lz:.3g}\n'+
             f'eps: {self.permittivity_value:.3g} \n'+
             f'lambda_range: {self.lambda_range[1]:.3g} - {self.lambda_range[0]:.3g} um \n'+
             f"lambdaw (pulse) {td.C_0/self.freqw} \n"+
@@ -92,20 +125,23 @@ class loadAndRunStructure:
             ),
             size=(0 if self.direction == "x" else td.inf, 
                   0 if self.direction == "y" else td.inf, 
-                  0 if self.direction == "z" else td.inf),
-            center=((-self.Lx+self.spacing)*0.5-0.8 if self.direction == "x" else 0, 
-                    (-self.Ly+self.spacing)*0.5-0.8 if self.direction == "y" else 0, 
-                    (-self.Lz+self.spacing)*0.5-0.8 if self.direction == "z" else 0),
+                  0 if self.direction == "z" else td.inf
+                  ) if self.sim_mode=="transmission" 
+                  else False
+                  ,
+            center=((-self.Lx*0.5+self.spacing*0.1) if self.direction == "x" else 0, 
+                    (-self.Ly*0.5+self.spacing*0.1) if self.direction == "y" else 0, 
+                    (-self.Lz*0.5+self.spacing*0.1) if self.direction == "z" else 0),
             direction='+',
             pol_angle=0,
             name='planewave',
             )
-        #Defining monitors
+        ################Defining monitors###########################################
         monitor_1 = td.FluxMonitor(
             center = (
-                        self.Lx/2 - self.spacing/2 if self.direction == "x" else 0, 
-                        self.Ly/2 - self.spacing/2 if self.direction == "y" else 0, 
-                        self.Lz/2 - self.spacing/2 if self.direction == "z" else 0
+                        (self.Lx - self.spacing)*0.5 if self.direction == "x" else 0, 
+                        (self.Ly - self.spacing)*0.5 if self.direction == "y" else 0, 
+                        (self.Lz - self.spacing)*0.5 if self.direction == "z" else 0
                         ),
             size = (
                 0 if self.direction == "x" else td.inf, 
@@ -117,9 +153,9 @@ class loadAndRunStructure:
         )
         monitor_2 = td.FluxMonitor(
             center = (
-                    (-self.Lx+self.spacing)/2 + 1 if self.direction =="x" else 0, 
-                    (-self.Ly+self.spacing)/2 + 1 if self.direction =="y" else 0, 
-                    (-self.Lz+self.spacing)/2 + 1 if self.direction =="z" else 0
+                    (-self.Lx+self.spacing)*0.5 if self.direction =="x" else 0, 
+                    (-self.Ly+self.spacing)*0.5 if self.direction =="y" else 0, 
+                    (-self.Lz+self.spacing)*0.5 if self.direction =="z" else 0
                     ),
             size = (
                 0 if self.direction == "x" else td.inf, 
@@ -129,29 +165,68 @@ class loadAndRunStructure:
             freqs = self.monitor_freqs,
             name='flux2'#To the left
         )
+        
+        ####################################################################
         #Defining permittivity distribution for structure 
-        Nx, Ny, Nz = np.shape(self.permittivity_raw)
-        X = np.linspace(-self.t_slab/2,self.t_slab/2, Nx)
-        Y = np.linspace(-self.t_slab/2, self.t_slab/2, Ny)
-        Z = np.linspace(-self.t_slab/2, self.t_slab/2, Nz)
-        coords = dict(x=X, y=Y, z=Z)
 
-        permittivity_data = SpatialDataArray(self.permittivity_raw,coords=coords)
-        dielectric = td.CustomMedium(permittivity=permittivity_data)
+        if self.file_format == ".h5":
+            Nx, Ny, Nz = np.shape(self.permittivity_raw)
+            X = np.linspace(-self.t_slab/2,self.t_slab/2, Nx)
+            Y = np.linspace(-self.t_slab/2, self.t_slab/2, Ny)
+            Z = np.linspace(-self.t_slab/2, self.t_slab/2, Nz)
+            coords = dict(x=X, y=Y, z=Z)
 
-        #Defining structure 
-        slab = td.Structure(
-        geometry=td.Box(
-            center=(0,  0 ,0),
-            size=(
-                  self.t_slab if self.direction == "x"  else td.inf, 
-                  self.t_slab if self.direction == "y"  else td.inf, 
-                  self.t_slab if self.direction == "z"  else td.inf
-                  ),
-        ),
-        medium=dielectric,
-        name='slab',
-        )
+            permittivity_data = SpatialDataArray(self.permittivity_raw,coords=coords)
+            dielectric = td.CustomMedium(permittivity=permittivity_data)
+
+            #Defining structure 
+            slab = td.Structure(
+            geometry=td.Box(
+                center=(0,  0 ,0),
+                size=(
+                      self.t_slab if self.direction == "x"  else td.inf, 
+                      self.t_slab if self.direction == "y"  else td.inf, 
+                      self.t_slab if self.direction == "z"  else td.inf
+                      ),
+            ),
+            medium=dielectric,
+            name='slab',
+            )
+        
+        #Loading stl structure
+        if self.file_format == ".stl":
+            triangles = tri.load_mesh(self.file)
+            
+            triangles.remove_degenerate_faces()
+            tri.repair.broken_faces(triangles)
+            triangles.apply_scale(self.scaling)
+            box = td.TriangleMesh.from_trimesh(
+                triangles
+                )
+            #box = td.TriangleMesh.from_stl(
+            #        filename=self.file,
+            #        scale=self.scaling,  # the units are already microns as desired, but this parameter can be used to change units [default: 1]
+            #        origin=(
+            #            0,
+            #            0,
+            #            0,
+            #        ),  # this can be used to set a custom origin for the stl solid [default: (0, 0, 0)]
+            #        solid_index=None,  # sometimes, there may be more than one solid in the file; use this to select a specific one by index
+            #    )
+            
+            if self.permittivity_dist!="": 
+                fitter = FastDispersionFitter.from_url(self.permittivity_dist)
+                fitter = fitter.copy(update={"wvl_range": (self.lambda_range[1], self.lambda_range[0])})
+                advanced_param = AdvancedFastFitterParam(weights=(1,1))
+                medium, rms_error = fitter.fit(max_num_poles=10, advanced_param=advanced_param, tolerance_rms=2e-2)
+              
+            else: 
+                medium = td.Medium(permittivity=self.permittivity_value)
+            
+            # create a structure composed of the geometry and the medium
+            slab = td.Structure(geometry=box, medium=medium)
+            
+
 
         #Boundary conditions 
 
@@ -173,18 +248,20 @@ class loadAndRunStructure:
                 }
     
     def simulation_definition(self):
+
         definitions = self.createSimObjects()
         sim = td.Simulation(
             center = (0, 0, 0),
             size = definitions['size'],
             grid_spec = definitions['grid_spec'],
-            sources = definitions['sources'],
-            monitors = definitions['monitors'],
+            sources = definitions['sources']+self.extra_sources,
+            monitors = definitions['monitors']+self.extra_monitors,
             run_time = definitions['run_time'],
-            shutoff = 1e-7, #Simulation stops when field has decayed to this 
+            shutoff = self.shutoff, #Simulation stops when field has decayed to this 
             boundary_spec = definitions['boundary_spec'],
             normalize_index = None,
-            structures = definitions['structures']
+            structures = definitions['structures'],
+            subpixel=self.subpixel
 
             )
         
@@ -228,7 +305,7 @@ class loadAndRunStructure:
         if (time_steps < max_time_steps and grid_size < max_grid_size) or not run_free:
 
             folder_name = folder_description
-            task_name_def = f'{self.structure_name}_size_{str(self.t_slab)}_runtime_{self.runtime}_lambdaRange_{self.lambda_range[0]}-{self.lambda_range[1]}_incidence_{self.direction}'
+            task_name_def = f'{self.structure_name}_eps_{self.permittivity_value}_size_{self.t_slab:.3g}_runtime_{self.runtime:.3g}_lambdaRange_{self.lambda_range[0]:.3g}-{self.lambda_range[1]:.3g}_incidence_{self.direction}'
             #Normalization task
             sim0 = sim.copy(update={'structures':[]})
             id_0 =web.upload(sim0, folder_name=folder_name,task_name=task_name_def+'_0', verbose=False)
