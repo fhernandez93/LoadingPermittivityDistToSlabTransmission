@@ -11,7 +11,7 @@ class loadFromFile:
     """
     Load results from txt file 
     """
-    def __init__(self, key:str="", file_path:str = ""):
+    def __init__(self, key:str="", file_path:str = "",only_download:bool=False):
         if not key:
             raise Exception("No API key was provided")
         else:
@@ -26,9 +26,22 @@ class loadFromFile:
                 self.list_id+=[line.strip()] 
 
         self.structure_name = Path(file_path).stem
+        store_path = f"output/{file_path}/Data"
+        self.only_download = only_download
 
-        self.sim_data0 = web.load(self.list_id[0])
-        self.sim_data = web.load(self.list_id[1])
+        if only_download:
+            web.load(self.list_id[0],path=store_path+"_0.hdf5")
+            web.load(self.list_id[1],path=store_path+".hdf5")
+            return False
+        
+
+
+        if Path(store_path+".hdf5").is_file():
+            self.sim_data0 =  td.SimulationData.from_hdf5(store_path+"_0.hdf5")
+            self.sim_data =  td.SimulationData.from_hdf5(store_path+".hdf5")
+        else:
+            self.sim_data0 = web.load(self.list_id[0],path=store_path+"_0.hdf5")
+            self.sim_data = web.load(self.list_id[1],path=store_path+".hdf5")
 
         self.cost = web.real_cost(self.list_id[1])
         self.run_time = self.sim_data.simulation.run_time
@@ -49,7 +62,7 @@ class loadFromFile:
             f"Runtime = {self.run_time} \n"+
             f"final decay value = {self.final_decay} \n"+
             f"Cost = {self.cost}"
-        )
+        ) if not self.only_download else "Info was only downloaded in the specified location"
 
         return calculated_data_str
 
