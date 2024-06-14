@@ -29,7 +29,7 @@ class loadAndRunStructure:
                  width:float=0.4, freqs:int=400,permittivity:float=1,
                  min_steps_per_lambda:int = 20, permittivity_dist:str="", scaling:float=1.0,shuoff_condtion:float=1e-7,
                  sim_mode:str = "transmission", subpixel:bool=True, verbose:bool=False, monitors:list=[], cut_condition:float=0,
-                 source:str="planewave"
+                 source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=0.01, multiplication_factor:float = 1.,
                  ):
         if not key:
             raise Exception("No API key was provided")
@@ -65,7 +65,9 @@ class loadAndRunStructure:
 
        
 
-
+        self.multiplicate_size = multiplicate_size
+        self.multiplication_factor = multiplication_factor
+        self.tight_percentage = tight_percentage
         self.source = source
         self.monitors = monitors
         self.min_steps_per_lambda = min_steps_per_lambda
@@ -103,13 +105,13 @@ class loadAndRunStructure:
         self.t_slab=box_size*scaling
 
         #t_slab in all different directions 
-        self.t_slab_x = self.t_slab*cut_condition if direction=="x" else self.t_slab
-        self.t_slab_y = self.t_slab*cut_condition if direction=="y" else self.t_slab
+        self.t_slab_x = (self.t_slab*cut_condition if direction=="x" else self.t_slab)*(self.multiplication_factor if self.multiplicate_size else 1)
+        self.t_slab_y = (self.t_slab*cut_condition if direction=="y" else self.t_slab)*(self.multiplication_factor if self.multiplicate_size else 1)
         self.t_slab_z = self.t_slab*cut_condition if direction=="z" else self.t_slab
        
         self.sim_size = self.Lx, self.Ly, self.Lz = (
-                                      self.t_slab_x+self.spacing*2 if direction == "x" else self.t_slab_x,
-                                      self.t_slab_y+self.spacing*2 if direction == "y" else self.t_slab_y,
+                                      (self.t_slab_x+self.spacing*2 if direction == "x" else self.t_slab_x),
+                                      (self.t_slab_y+self.spacing*2 if direction == "y" else self.t_slab_y),
                                       self.t_slab_z+self.spacing*2 if direction == "z" else self.t_slab_z
                                       )
         
@@ -151,9 +153,9 @@ class loadAndRunStructure:
                   ) if self.source == "planewave"
                   else 
                   (
-                    0  if self.direction == "x" else self.t_slab_x*0.2,
-                    0  if self.direction == "y" else self.t_slab_y*0.2,
-                    0  if self.direction == "z" else self.t_slab_z*0.2
+                    0  if self.direction == "x" else self.t_slab_x*self.tight_percentage,
+                    0  if self.direction == "y" else self.t_slab_y*self.tight_percentage,
+                    0  if self.direction == "z" else self.t_slab_z*self.tight_percentage
 
                   )
                   ,
@@ -201,7 +203,7 @@ class loadAndRunStructure:
 
         # Records time-dependent transmitted flux through the slab
         if "time_monitor" in self.monitors:
-            time_monitorT = td.FluxTimeMonitor(
+            self.time_monitorT = td.FluxTimeMonitor(
                     center=[
                         (self.Lx - self.spacing)*0.5 if self.direction == "x" else 0, 
                         (self.Ly - self.spacing)*0.5 if self.direction == "y" else 0, 
@@ -218,7 +220,7 @@ class loadAndRunStructure:
                     name="time_monitorT",
 
                 )
-            monitors_names += [time_monitorT]
+            monitors_names += [self.time_monitorT]
 
         # Records E-fields throughout simulation volume at t=run_time/2
         if "field_time_domain" in self.monitors:
@@ -292,28 +294,74 @@ class loadAndRunStructure:
         #Defining permittivity distribution for structure 
 
         if self.file_format == ".h5":
-            Nx, Ny, Nz = np.shape(self.permittivity_raw)
-            X = np.linspace(-self.t_slab_x/2,self.t_slab_x/2, Nx)
-            Y = np.linspace(-self.t_slab_y/2, self.t_slab_y/2, Ny)
-            Z = np.linspace(-self.t_slab_z/2, self.t_slab_z/2, Nz)
-            coords = dict(x=X, y=Y, z=Z)
+            x_size,y_size,z_size = self.t_slab_x/self.multiplication_factor,self.t_slab_y/self.multiplication_factor,self.t_slab_z
+            if not self.multiplicate_size:
+                Nx, Ny, Nz = np.shape(self.permittivity_raw)
+                X = np.linspace(-x_size/2,x_size/2, Nx)
+                Y = np.linspace(-y_size/2, y_size/2, Ny)
+                Z = np.linspace(-z_size/2, z_size/2, Nz)
+                coords = dict(x=X, y=Y, z=Z)
 
-            permittivity_data = SpatialDataArray(self.permittivity_raw,coords=coords)
-            dielectric = td.CustomMedium(permittivity=permittivity_data)
+                permittivity_data = SpatialDataArray(self.permittivity_raw,coords=coords)
+                dielectric = td.CustomMedium(permittivity=permittivity_data)
 
-            #Defining structure 
-            slab = td.Structure(
-            geometry=td.Box(
-                center=(0,  0 ,0),
-                size=(
-                      self.t_slab_x if self.direction == "x"  else td.inf, 
-                      self.t_slab_y if self.direction == "y"  else td.inf, 
-                      self.t_slab_z if self.direction == "z"  else td.inf
-                      ),
-            ),
-            medium=dielectric,
-            name='slab',
-            )
+                #Defining structure 
+                slab = td.Structure(
+                geometry=td.Box(
+                    center=(0,  0 ,0),
+                    size=(
+                          x_size if self.direction == "x"  else td.inf, 
+                          y_size if self.direction == "y"  else td.inf, 
+                          z_size if self.direction == "z"  else td.inf
+                          ),
+                ),
+                medium=dielectric,
+                name='slab',
+                )
+            else: 
+                slabs = []
+                coordinates_slabs = []
+                
+                for i in range(self.multiplication_factor):
+                    for j in range(self.multiplication_factor):
+                        center_x = (i - ( self.multiplication_factor/ 2) + 0.5) * x_size
+                        center_y = (j - ( self.multiplication_factor/ 2) + 0.5) * y_size
+                        center_z = 0  # All cubes are centered on the z=0 plane
+                        coord_item = {
+                                "X": (center_x - x_size/2, center_x + x_size/2),
+                                "Y": (center_y - y_size/2, center_y + y_size/2),
+                                "Z": (-z_size/2, z_size/2),
+                                "center": (center_x, center_y, center_z)
+                                }
+                        
+                        coordinates_slabs+=[coord_item]
+
+                for i,item in enumerate(coordinates_slabs):
+                    Nx, Ny, Nz = np.shape(self.permittivity_raw)
+                    X = np.linspace(item["X"][0],item["X"][1], Nx)
+                    Y = np.linspace(item["Y"][0],item["Y"][1], Ny)
+                    Z = np.linspace(-z_size/2, z_size/2, Nz)
+                    coords = dict(x=X, y=Y, z=Z)
+    
+                    permittivity_data = SpatialDataArray(self.permittivity_raw,coords=coords)
+                    dielectric = td.CustomMedium(permittivity=permittivity_data)
+
+
+                    #Defining structure 
+                    slab_i = td.Structure(
+                    geometry=td.Box(
+                        center= item["center"],
+                        size=(
+                              x_size, 
+                              y_size,
+                              z_size
+                              ),
+                    ),
+                    medium=dielectric,
+                    name=f'slab{i}',
+                    )
+
+                    slabs += [slab_i]
         
         #Loading stl structure
         if self.file_format == ".stl":
@@ -370,7 +418,7 @@ class loadAndRunStructure:
                 "run_time": self.t_stop,
                 "boundary_spec": boundaries,
                 "normalize_index": None,
-                "structures": [slab]
+                "structures": [slab] if not self.multiplicate_size else slabs
                 }
     
     def simulation_definition(self):
@@ -394,10 +442,10 @@ class loadAndRunStructure:
         if "time_monitorFieldOut" in self.monitors:
             time_monitorFieldOut = td.FieldTimeMonitor(
                 center = (
-                        (-self.Lx+self.spacing)*0.5 if self.direction =="x" else 0, 
-                        (-self.Ly+self.spacing)*0.5 if self.direction =="y" else 0, 
-                        (-self.Lz+self.spacing)*0.5 if self.direction =="z" else 0
-                        ),
+                            (self.Lx - self.spacing)*0.5 if self.direction == "x" else 0, 
+                            (self.Ly - self.spacing)*0.5 if self.direction == "y" else 0, 
+                            (self.Lz - self.spacing)*0.5 if self.direction == "z" else 0
+                            ),
                 size = (
                     0 if self.direction == "x" else td.inf, 
                     0 if self.direction == "y" else td.inf, 
@@ -439,11 +487,17 @@ class loadAndRunStructure:
         sim = self.sim
         plt.figure(dpi=200)
         freqs_plot = (self.freq_range[0], self.freq_range[1])
-        fig, ax = plt.subplots(1, tight_layout=True, figsize=(8, 4))
+        fig, ax = plt.subplots(1, tight_layout=True, figsize=(16, 8))
         if self.direction == "x":
             sim.plot_eps(z=0, freq=freqs_plot[0], ax=ax)
         elif self.direction == "z":
             sim.plot_eps(x=0, freq=freqs_plot[0], ax=ax)
+            plt.show()
+            plt.figure(dpi=250)
+            freqs_plot = (self.freq_range[0], self.freq_range[1])
+            fig, ax = plt.subplots(1, tight_layout=True, figsize=(16, 8))
+            sim.plot_eps(z=0, freq=freqs_plot[0], ax=ax)
+            plt.show()
         elif self.direction == "y":
             sim.plot_eps(z=0, freq=freqs_plot[0], ax=ax)
             
@@ -481,7 +535,7 @@ class loadAndRunStructure:
             task_name_def = f'{self.structure_name}_eps_{self.permittivity_value}_size_{size:.3g}_runtime_{self.runtime:.3g}_lambdaRange_{self.lambda_range[0]:.3g}-{self.lambda_range[1]:.3g}_incidence_{self.direction}'
             #Normalization task
             if add_ref:
-                sim0 = sim.copy(update={'structures':[],'monitors':[self.monitor_1,self.monitor_2]})
+                sim0 = sim.copy(update={'structures':[]})
                 id_0 =web.upload(sim0, folder_name=folder_name,task_name=task_name_def+'_0', verbose=self.verbose)
                 if run:
                     web.start(task_id = id_0)
