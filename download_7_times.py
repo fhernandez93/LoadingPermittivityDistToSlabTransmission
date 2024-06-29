@@ -80,16 +80,16 @@ for path_direction in [
                 structure_1 = AM.loadFromFile(key = tidy3dAPI, file_path=file)
                 sim_data = structure_1.sim_data
                 field_time_out = sim_data.get_intensity("time_monitorFieldOut")
-                plt.plot(field_time_out['t']*1e12 ,diameter(field_time_out).squeeze()/a,"o", label=f"L=90x90x9a")
+                plt.plot(field_time_out['t']*1e12 ,diameter(field_time_out).squeeze()/a,"o", label=f"L=125x125x12.5a")
 
                 if i == 0:
                       monitor_lambdas = a/(td.C_0/np.array(np.array(sim_data.simulation.monitors)[0].freqs))
                       name = Path(filename).name
-                      create_movie(field_time_out,monitor_lambdas,name)
+                      #create_movie(field_time_out,monitor_lambdas,name)
 
             plt.ylabel("d(t)(in units of a)")
             plt.xlabel("Time[ps]")
-            plt.title(f"Diameter d(t) at output of the structure Range - {monitor_lambdas[0]:.3g} - {monitor_lambdas[-1]:.3g}")
+            plt.title(f"L=125x125x12.5a Diameter d(t) - {monitor_lambdas[0]:.3g} - {monitor_lambdas[-1]:.3g}")
             plt.legend()
             plt.grid()
             plt.savefig(f'output/anderson/d(t) analysis/Diameter d(t) {Path(filename).name}.pdf', format='pdf')

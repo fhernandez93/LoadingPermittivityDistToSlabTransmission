@@ -161,7 +161,20 @@ class loadAndRunStructure:
                   ,
             center=((-self.Lx*0.5+self.spacing*0.1) if self.direction == "x" else 0, 
                     (-self.Ly*0.5+self.spacing*0.1) if self.direction == "y" else 0, 
-                    (-self.Lz*0.5+self.spacing*0.1) if self.direction == "z" else 0),
+                    (-self.Lz*0.5+self.spacing*0.1) if self.direction == "z" else 0) if self.source == "planewave" 
+                    
+                    
+                    else 
+
+                    (
+                        -self.t_slab_x/2 if self.direction == "x" else 0,
+                        -self.t_slab_y/2 if self.direction == "y" else 0,
+                        -self.t_slab_z/2 if self.direction == "z" else 0
+                     
+                     
+                     )
+                    
+                    ,
             direction='+',
             pol_angle=0,
             name='planewave',
@@ -392,9 +405,9 @@ class loadAndRunStructure:
         #Boundary conditions 
 
         boundaries= td.BoundarySpec(
-            x=td.Boundary(plus=td.Absorber(num_layers=25),minus=td.Absorber(num_layers=25)) if self.direction=="x" else td.Boundary.periodic(),
-            y=td.Boundary(plus=td.Absorber(num_layers=25),minus=td.Absorber(num_layers=25)) if self.direction=="y" else td.Boundary.periodic(),
-            z=td.Boundary(plus=td.Absorber(num_layers=25),minus=td.Absorber(num_layers=25)) if self.direction=="z" else td.Boundary.periodic(),
+            x=td.Boundary(plus=td.Absorber(num_layers=40),minus=td.Absorber(num_layers=40)) if self.direction=="x" else td.Boundary.periodic(),
+            y=td.Boundary(plus=td.Absorber(num_layers=40),minus=td.Absorber(num_layers=40)) if self.direction=="y" else td.Boundary.periodic(),
+            z=td.Boundary(plus=td.Absorber(num_layers=40),minus=td.Absorber(num_layers=40)) if self.direction=="z" else td.Boundary.periodic(),
         )
 
         #Mesh override structure 
@@ -442,9 +455,9 @@ class loadAndRunStructure:
         if "time_monitorFieldOut" in self.monitors:
             time_monitorFieldOut = td.FieldTimeMonitor(
                 center = (
-                            (self.Lx - self.spacing)*0.5 if self.direction == "x" else 0, 
-                            (self.Ly - self.spacing)*0.5 if self.direction == "y" else 0, 
-                            (self.Lz - self.spacing)*0.5 if self.direction == "z" else 0
+                            (self.t_slab_x)*0.5 if self.direction == "x" else 0, 
+                            (self.t_slab_y)*0.5 if self.direction == "y" else 0, 
+                            (self.t_slab_z)*0.5 if self.direction == "z" else 0
                             ),
                 size = (
                     0 if self.direction == "x" else td.inf, 
@@ -453,7 +466,7 @@ class loadAndRunStructure:
                     ),
                     start=0,
                     stop=self.t_stop,
-                    interval=int(sim.num_time_steps/200),
+                    interval=int(sim.num_time_steps/100),
                     fields=["Ex", "Ey", "Ez"],
                     name="time_monitorFieldOut",
                     
@@ -471,7 +484,7 @@ class loadAndRunStructure:
                     ],
                     start=0,
                     stop=self.t_stop,
-                    interval=int(sim.num_time_steps/200),
+                    interval=int(sim.num_time_steps/100),
                     fields=["Ex", "Ey", "Ez"],
                     name="time_monitorFieldCenter"
                     

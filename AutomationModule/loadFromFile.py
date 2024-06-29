@@ -46,7 +46,7 @@ class loadFromFile:
         self.run_time = self.sim_data.simulation.run_time
         self.fwidth=self.sim_data.simulation.sources[0].source_time.fwidth
         self.freq0=self.sim_data.simulation.sources[0].source_time.freq0
-        self.run_time = self.sim_data.simulation.run_time*self.fwidth
+        self.run_time = self.sim_data.simulation.run_time*1e12
         self.monitor_lambdas = td.C_0/np.array(np.array(self.sim_data.simulation.monitors)[0].freqs)
         self.final_decay = self.sim_data.final_decay_value
         self.description = Path(file_path).stem
