@@ -1,6 +1,0 @@
-tidy3d==2.5.0
-trimesh
-python-dotenv
-matplotlib
-ipywidgets
-natsort

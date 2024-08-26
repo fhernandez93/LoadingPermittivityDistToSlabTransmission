@@ -26,11 +26,11 @@ class loadAndRunStructure:
 
     def __init__(self, key:str="", file_path:str = "", direction:str="z", 
                  lambda_range: list= [], box_size:float = 0, runtime: int = 0, 
-                 width:float=0.4, freqs:int=400,permittivity:float=1,
+                 width:float=0.4, freqs:int=400,permittivity:float=1, use_permittivity:bool=False,
                  min_steps_per_lambda:int = 20, permittivity_dist:str="", scaling:float=1.0,shuoff_condtion:float=1e-7,
                  sim_mode:str = "transmission", subpixel:bool=True, verbose:bool=False, monitors:list=[], cut_condition:float=1,
-                 source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=0.01, multiplication_factor:float = 1.,pol_angle:float = 0,
-                 ref_only:bool=False
+                 source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=0.01, multiplication_factor:int = 1,pol_angle:float = 0,
+                 ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0
                  ):
         if not key:
             raise Exception("No API key was provided")
@@ -53,7 +53,7 @@ class loadAndRunStructure:
         # Load HDF5 file
         if  self.file_format == ".h5":
             with h5py.File(self.file, 'r') as f:
-                self.permittivity_raw = np.ceil(np.array(f['epsilon'])).astype(np.uint8)
+                self.permittivity_raw = np.ceil(np.array(f['epsilon']))
                 if cut_condition < 1 :
                     if direction == "x":
                         self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[0]*cut_condition-1)])
@@ -62,8 +62,13 @@ class loadAndRunStructure:
                     elif direction == "z":
                         self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[2]*cut_condition-1)])
 
+        if use_permittivity:
+            self.permittivity_raw[self.permittivity_raw>1] += (permittivity - np.max(self.permittivity_raw))
+            self.permittivity_raw[self.permittivity_raw<1] = 1
 
-       
+
+        self.sim_name = sim_name
+        self.absorbers = absorbers
         self.pol_angle = pol_angle
         self.ref_only = ref_only
         self.multiplicate_size = multiplicate_size
@@ -92,7 +97,7 @@ class loadAndRunStructure:
         # runtime
         self.shutoff = shuoff_condtion
         self.runtime = runtime
-        self.t_stop = self.runtime/self.freqw
+        self.t_stop = runtime_ps if runtime_ps>0 else self.runtime/self.freqw
         self.Nfreq = freqs
         self.monitor_freqs = np.linspace(self.freq_range[0], self.freq_range[1], self.Nfreq)
         self.monitor_lambdas = td.constants.C_0 / self.monitor_freqs
@@ -332,45 +337,14 @@ class loadAndRunStructure:
                     ),
                     medium=dielectric,
                     name='slab',
+                    
                     )
+
+                ###This Code creates several cubes and place them together
                 else: 
                     slabs = []
-                    coordinates_slabs = []
-
-                    ##############Concatenate slabs in chunks#######################
-                    # Create a memory-mapped array with the desired final shape
-                    filename = r'F:\large_permittivity.dat'  # Specify the path for the memory-mapped file
-                    dtype = np.uint8 # Get the data type from the original array
-                    shape = (
-                                np.shape(self.permittivity_raw)[0]*self.multiplication_factor,
-                                 np.shape(self.permittivity_raw)[1]*self.multiplication_factor,
-                                 np.shape(self.permittivity_raw)[2]
-                            )
-
-                    #if not os.path.isfile(filename):
-                    if True:
-                        final_permittivity = np.memmap(filename, dtype=dtype, mode='w+', shape=shape)
-                        for i in range(self.multiplication_factor): 
-                            for j in range(self.multiplication_factor):
-                                    # Compute the start indices for the current block
-                                    start_x = i * np.shape(self.permittivity_raw)[0]
-                                    start_y = j * np.shape(self.permittivity_raw)[1]
-                                    end_x = (i+1) * np.shape(self.permittivity_raw)[0]
-                                    end_y = (j+1) * np.shape(self.permittivity_raw)[1]
-                                    # Assign the block
-                                    final_permittivity[ 
-                                                            start_x:end_x,
-                                                            start_y:end_y,
-                                                            :
-                                                        ] = self.permittivity_raw
-
-
-                                    final_permittivity.flush()
-                    else: 
-                         final_permittivity = np.memmap(filename, dtype=dtype, mode='r', shape=shape)
-
-                    ################################################################################################
-
+                    self.coordinates_slabs = []
+                    
                     for i in range(self.multiplication_factor):
                         for j in range(self.multiplication_factor):
                             center_x = (i - ( self.multiplication_factor/ 2) + 0.5) * x_size
@@ -382,37 +356,118 @@ class loadAndRunStructure:
                                     "Z": (-z_size/2, z_size/2),
                                     "center": (center_x, center_y, center_z)
                                     }
+                            
+                            self.coordinates_slabs+=[coord_item]
+    
+                    for i,item in enumerate(self.coordinates_slabs):
+                        Nx, Ny, Nz = np.shape(self.permittivity_raw)
+                        X = np.linspace(item["X"][0],item["X"][1], Nx)
+                        Y = np.linspace(item["Y"][0],item["Y"][1], Ny)
+                        Z = np.linspace(-z_size/2, z_size/2, Nz)
+                        coords = dict(x=X, y=Y, z=Z)
+        
+                        permittivity_data = SpatialDataArray(self.permittivity_raw,coords=coords)
+                        dielectric = td.CustomMedium(permittivity=permittivity_data)
+    
+    
+                        #Defining structure 
+                        slab_i = td.Structure(
+                        geometry=td.Box(
+                            center= item["center"],
+                            size=(
+                                  x_size, 
+                                  y_size,
+                                  z_size
+                                  ),
+                        ),
+                        medium=dielectric,
+                        name=f'slab{i}',
+                        )
+    
+                        slabs += [slab_i]
+        
 
-                            coordinates_slabs+=[coord_item]
 
-                    X,Y,Z = np.array([]),np.array([]),np.array([])
+                #####This code creates a large permittivity array 
+                # else: 
+                #     slabs = []
+                #     coordinates_slabs = []
 
-                    Nx, Ny, Nz = np.shape(final_permittivity)
-                    X = np.linspace(-self.t_slab_x/2,self.t_slab_x/2, Nx)
-                    Y = np.linspace(-self.t_slab_y/2, self.t_slab_y/2, Ny)
-                    Z = np.linspace(-self.t_slab_z/2, self.t_slab_z/2, Nz)
-                    coords = dict(x=X, y=Y, z=Z)
+                #     ##############Concatenate slabs in chunks#######################
+                #     # Create a memory-mapped array with the desired final shape
+                #     filename = r'F:\large_permittivity.dat'  # Specify the path for the memory-mapped file
+                #     dtype = np.uint8 # Get the data type from the original array
+                #     shape = (
+                #                 np.shape(self.permittivity_raw)[0]*self.multiplication_factor,
+                #                  np.shape(self.permittivity_raw)[1]*self.multiplication_factor,
+                #                  np.shape(self.permittivity_raw)[2]
+                #             )
 
-                    #Defining structure 
-                    coords = dict(x=X, y=Y, z=Z)
-                    permittivity_data = SpatialDataArray(final_permittivity,coords=coords)
-                    self.dielectric = td.CustomMedium(permittivity=permittivity_data)
+                #     if True:
+                #         final_permittivity = np.memmap(filename, dtype=dtype, mode='w+', shape=shape)
+                #         for i in range(self.multiplication_factor): 
+                #             for j in range(self.multiplication_factor):
+                #                     # Compute the start indices for the current block
+                #                     start_x = i * np.shape(self.permittivity_raw)[0]
+                #                     start_y = j * np.shape(self.permittivity_raw)[1]
+                #                     end_x = (i+1) * np.shape(self.permittivity_raw)[0]
+                #                     end_y = (j+1) * np.shape(self.permittivity_raw)[1]
+                #                     # Assign the block
+                #                     final_permittivity[ 
+                #                                             start_x:end_x,
+                #                                             start_y:end_y,
+                #                                             :
+                #                                         ] = self.permittivity_raw
 
 
-                    slab_i = td.Structure(
-                    geometry=td.Box(
-                        center= (0,0,0),
-                        size=(
-                              self.t_slab_x if self.direction == "x"  else td.inf, 
-                              self.t_slab_y  if self.direction == "y"  else td.inf, 
-                              self.t_slab_z if self.direction == "z"  else td.inf
-                              ),
-                    ),
-                    medium=self.dielectric,
-                    name=f'slab{0}',
-                    )
+                #                     final_permittivity.flush()
+                #     else: 
+                #          final_permittivity = np.memmap(filename, dtype=dtype, mode='r', shape=shape)
 
-                    slabs += [slab_i]
+                #     ################################################################################################
+
+                #     for i in range(self.multiplication_factor):
+                #         for j in range(self.multiplication_factor):
+                #             center_x = (i - ( self.multiplication_factor/ 2) + 0.5) * x_size
+                #             center_y = (j - ( self.multiplication_factor/ 2) + 0.5) * y_size
+                #             center_z = 0  # All cubes are centered on the z=0 plane
+                #             coord_item = {
+                #                     "X": (center_x - x_size/2, center_x + x_size/2),
+                #                     "Y": (center_y - y_size/2, center_y + y_size/2),
+                #                     "Z": (-z_size/2, z_size/2),
+                #                     "center": (center_x, center_y, center_z)
+                #                     }
+
+                #             coordinates_slabs+=[coord_item]
+
+                #     X,Y,Z = np.array([]),np.array([]),np.array([])
+
+                #     Nx, Ny, Nz = np.shape(final_permittivity)
+                #     X = np.linspace(-self.t_slab_x/2,self.t_slab_x/2, Nx)
+                #     Y = np.linspace(-self.t_slab_y/2, self.t_slab_y/2, Ny)
+                #     Z = np.linspace(-self.t_slab_z/2, self.t_slab_z/2, Nz)
+                #     coords = dict(x=X, y=Y, z=Z)
+
+                #     #Defining structure 
+                #     coords = dict(x=X, y=Y, z=Z)
+                #     permittivity_data = SpatialDataArray(final_permittivity,coords=coords)
+                #     self.dielectric = td.CustomMedium(permittivity=permittivity_data)
+
+
+                #     slab_i = td.Structure(
+                #     geometry=td.Box(
+                #         center= (0,0,0),
+                #         size=(
+                #               self.t_slab_x if self.direction == "x"  else td.inf, 
+                #               self.t_slab_y  if self.direction == "y"  else td.inf, 
+                #               self.t_slab_z if self.direction == "z"  else td.inf
+                #               ),
+                #     ),
+                #     medium=self.dielectric,
+                #     name=f'slab{0}',
+                #     )
+
+                #     slabs += [slab_i]
 
 
             #Loading stl structure
@@ -421,6 +476,7 @@ class loadAndRunStructure:
                 triangles.remove_degenerate_faces()
                 tri.repair.broken_faces(triangles)
                 triangles.apply_scale(self.scaling)
+                tri.repair.broken_faces(triangles)
                 box = td.TriangleMesh.from_trimesh(
                     triangles
                     )
@@ -445,9 +501,9 @@ class loadAndRunStructure:
         #Boundary conditions 
 
         boundaries= td.BoundarySpec(
-            x=td.Boundary(plus=td.Absorber(num_layers=40),minus=td.Absorber(num_layers=40)) if self.direction=="x" else td.Boundary.periodic(),
-            y=td.Boundary(plus=td.Absorber(num_layers=40),minus=td.Absorber(num_layers=40)) if self.direction=="y" else td.Boundary.periodic(),
-            z=td.Boundary(plus=td.Absorber(num_layers=40),minus=td.Absorber(num_layers=40)) if self.direction=="z" else td.Boundary.periodic(),
+            x=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if self.direction=="x" else td.Boundary.periodic(),
+            y=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if self.direction=="y" else td.Boundary.periodic(),
+            z=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if self.direction=="z" else td.Boundary.periodic(),
         )
 
         #Mesh override structure 
@@ -457,14 +513,14 @@ class loadAndRunStructure:
                       self.t_slab_y if self.direction == "y"  else td.inf, 
                       self.t_slab_z if self.direction == "z"  else td.inf
                       )),
-            dl=( (self.lambda_range[1] / (self.min_steps_per_lambda*2)) / np.sqrt(self.permittivity_value) #  grids per smallest wavelength in medium
+            dl=( (self.lambda_range[1] / (self.min_steps_per_lambda)) / np.sqrt(self.permittivity_value) #  grids per smallest wavelength in medium
             ,)*3
         )
 
         return {
                 "size":self.sim_size,
                 "grid_spec": td.GridSpec.auto(min_steps_per_wvl=self.min_steps_per_lambda,wavelength=self.lambda0,
-                                            dl_min=self.dl*1e-2,#override_structures=[mesh_override],
+                                            dl_min=self.dl,
                                             max_scale=1.2,), 
                 "sources": [self.source_def],
                 "monitors": monitors_names,
@@ -513,6 +569,26 @@ class loadAndRunStructure:
                 )
             
             sim = sim.copy(update={"monitors":list(sim.monitors)+[time_monitorFieldOut]})
+
+        if "time_monitorFieldLateral" in self.monitors:
+            time_monitorFieldLateral = td.FieldTimeMonitor(
+                center = (
+                           0,0,0
+                            ),
+                size = (
+                    0 if self.direction == "z" else self.Lx, 
+                    0 if self.direction == "y" else self.Ly, 
+                    0 if self.direction == "x" else self.Lz
+                    ),
+                    start=0,
+                    stop=20e-12,
+                    interval=200,
+                    fields=["Ex", "Ey", "Ez"],
+                    name="time_monitorFieldLateral",
+                    
+                )
+            
+            sim = sim.copy(update={"monitors":list(sim.monitors)+[time_monitorFieldLateral]})
 
         if "freq_monitorFieldOut" in self.monitors:
             freq_monitorFieldOut = td.FieldMonitor(
@@ -605,7 +681,7 @@ class loadAndRunStructure:
             size = self.t_slab_z if self.direction == "z" else self.t_slab
 
             folder_name = folder_description
-            task_name_def = f'{self.structure_name}_eps_{self.permittivity_value}_size_{size:.3g}_runtime_{self.runtime:.3g}_lambdaRange_{self.lambda_range[0]:.3g}-{self.lambda_range[1]:.3g}_incidence_{self.direction}'
+            task_name_def = f'{self.structure_name}_eps_{self.permittivity_value}_size_{size:.3g}_runtime_{self.runtime:.3g}_lambdaRange_{self.lambda_range[0]:.3g}-{self.lambda_range[1]:.3g}_incidence_{self.direction}' if not self.sim_name else self.sim_name 
             #Normalization task
             if add_ref:
                 sim0 = sim.copy(update={'structures':[]})
@@ -625,10 +701,10 @@ class loadAndRunStructure:
             if run:
                 ids = (id_0 if add_ref else "") + '\n' + id
                 incidence_folder = self.direction+"_incidence"
-                file_path = f"data/{folder_name}/{incidence_folder}/{task_name_def}.txt"
+                file_path = rf"H:\phd stuff\tidy3d\data\{folder_name}\{incidence_folder}\{task_name_def}.txt"
                 # Check if the folder exists
-                if not os.path.exists( f"data/{folder_name}/{incidence_folder}"):
-                    os.makedirs(f"data/{folder_name}/{incidence_folder}")
+                if not os.path.exists( rf"H:\phd stuff\tidy3d\data\{folder_name}\{incidence_folder}"):
+                    os.makedirs(rf"H:\phd stuff\tidy3d\data\{folder_name}\{incidence_folder}")
                     print(f"Folder '{folder_name}/{incidence_folder}' created successfully.")
 
                 # Open file in write mode

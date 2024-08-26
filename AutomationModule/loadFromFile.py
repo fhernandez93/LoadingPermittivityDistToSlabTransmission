@@ -26,7 +26,8 @@ class loadFromFile:
                 self.list_id+=[line.strip()] 
 
         self.structure_name = Path(file_path).stem
-        store_path = f"output/{file_path}/Data"
+
+        store_path = fr"H:\phd stuff\tidy3d/output/{file_path[file_path.find("data"):]}/Data"
         self.only_download = only_download
 
         if only_download:
@@ -37,18 +38,30 @@ class loadFromFile:
                     web.load(self.list_id[0] ,path=store_path+"_0.hdf5")
                 except:
                     print("No Reference Simulation was found for this case")
+               
                 web.load(self.list_id[1],path=store_path+".hdf5")
             return None
         
-        print(store_path)
         if Path(store_path+".hdf5").is_file():
-            self.sim_data0 =  td.SimulationData.from_hdf5(store_path+"_0.hdf5")
+            try:
+                self.sim_data0 =  td.SimulationData.from_hdf5(store_path+"_0.hdf5")
+            except:
+                print("No Reference Simulation was found for this case")
             self.sim_data =  td.SimulationData.from_hdf5(store_path+".hdf5")
         else:
-            self.sim_data0 = web.load(self.list_id[0] if self.list_id[0] else 'fdve-eca39dd4-44e2-433e-bf23-5c02e3f6f437',path=store_path+"_0.hdf5")
+            try:
+                    self.sim_data0=web.load(self.list_id[0] ,path=store_path+"_0.hdf5")
+            except:
+                    print("No Reference Simulation was found for this case")
+
             self.sim_data = web.load(self.list_id[1],path=store_path+".hdf5")
 
-        #self.cost = web.real_cost(self.list_id[1])
+        
+        try:
+            self.cost = web.real_cost(self.list_id[1])
+        except:
+            self.cost = "No cost was found"
+
         self.run_time = self.sim_data.simulation.run_time
         self.fwidth=self.sim_data.simulation.sources[0].source_time.fwidth
         self.freq0=self.sim_data.simulation.sources[0].source_time.freq0
@@ -56,11 +69,20 @@ class loadFromFile:
         try:
             self.monitor_lambdas = td.C_0/np.array(np.array(self.sim_data.simulation.monitors).freqs)
         except:
-            self.monitor_lambdas =np.array([td.C_0/self.freq0+td.C_0/self.fwidth,td.C_0/self.freq0-td.C_0/self.fwidth])
+            self.monitor_lambdas =np.array([td.C_0/((self.freq0) - ((self.fwidth*2))),td.C_0/((self.freq0) +((self.fwidth*2)))])
+
+
+
         self.final_decay = self.sim_data.final_decay_value
         self.description = Path(file_path).stem
-        self.resolution= self.sim_data.simulation.grid_spec.grid_x.min_steps_per_wvl
+        try:
+            self.resolution= self.sim_data.simulation.grid_spec.grid_x.min_steps_per_wvl
+        except:
+            self.resolution= ""
         self.time_per_fwidth = self.sim_data.simulation.run_time*self.fwidth
+
+
+        
     def __str__(self):
 
         calculated_data_str = ('Simulation Parameters (wavelengths are expressed in um):\n' +
