@@ -187,7 +187,7 @@ class loadAndRunStructure:
             name='planewave',
             )
         ################Defining monitors###########################################
-        monitors_names = []
+        self.monitors_names = []
         if "flux" in self.monitors:
             self.monitor_1 = td.FluxMonitor(
                 center = (
@@ -218,7 +218,7 @@ class loadAndRunStructure:
                 name='flux2'#To the left
             )
 
-            monitors_names += [self.monitor_1,self.monitor_2]
+            self.monitors_names += [self.monitor_1,self.monitor_2]
 
 
         # Records time-dependent transmitted flux through the slab
@@ -240,7 +240,7 @@ class loadAndRunStructure:
                     name="time_monitorT",
 
                 )
-            monitors_names += [self.time_monitorT]
+            self.monitors_names += [self.time_monitorT]
 
         # Records E-fields throughout simulation volume at t=run_time/2
         if "field_time_domain" in self.monitors:
@@ -273,7 +273,7 @@ class loadAndRunStructure:
                     fields=["Ex", "Ey", "Ez"],
                     name="time_monitorFinal",
                 )
-            monitors_names+=[time_monitorH,time_monitorFinal]
+            self.monitors_names+=[time_monitorH,time_monitorFinal]
 
 
 
@@ -293,7 +293,7 @@ class loadAndRunStructure:
                     freqs =self.monitor_freqs,
                     interval_space=(5,5,5)
                 )
-            monitors_names+=[field_monitor]
+            self.monitors_names+=[field_monitor]
 
 
         if "permittivity_monitor" in self.monitors:
@@ -307,7 +307,7 @@ class loadAndRunStructure:
                 freqs=[self.freq0],
                 name="eps_monitor",
             )
-            monitors_names+=[eps_monitor]
+            self.monitors_names+=[eps_monitor]
 
 
         ####################################################################
@@ -523,7 +523,7 @@ class loadAndRunStructure:
                                             dl_min=self.dl,
                                             max_scale=1.2,), 
                 "sources": [self.source_def],
-                "monitors": monitors_names,
+                "monitors": self.monitors_names,
                 "run_time": self.t_stop,
                 "boundary_spec": boundaries,
                 "normalize_index": None,

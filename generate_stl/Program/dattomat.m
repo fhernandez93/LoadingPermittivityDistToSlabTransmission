@@ -1,8 +1,8 @@
 % Read the data from the .dat file
-data = importdata('H:\phd stuff\tidy3d\generate_stl\FromEndsFiles\RCP 18.01 End Points\1_sample_L18_lines_cut.dat');
+data = importdata('H:\phd stuff\tidy3d\structures\End2EndFiles\Florescu LSU 14.3\ak4_1000_ends.dat');
 
 % Assuming each row represents a set of data, transpose the data matrix
 r = data;
 
 % Save the data into a MATLAB .mat file
-save('1_sample_L18_lines_cut.mat', 'r');
+save('ak4_1000_ends.mat', 'r');

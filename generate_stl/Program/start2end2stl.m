@@ -1,12 +1,12 @@
 clc
 clear all
-r=load("1_sample_L18_lines_cut.mat");
-scale = 18
+r=load("ak4_1000_ends.mat");
+scale = 1
 r=r.r*scale;
 l=sqrt(        sum((r(:,1:3)-r(:,4:6)).^2,2)           );
-R=0.25; %%% radio de los cilindros
+R=0.35*scale; %%% radio de los cilindros
 N=17; %%% numero de caras de los cilindros
-name='1_sample_L18_lines_cut.stl';
+name='ak4_1000_ends.stl';
 r=unique(r,"rows");
 a=length(r); 
 max(r)
