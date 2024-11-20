@@ -11,10 +11,10 @@ class loadFromFile:
     """
     Load results from txt file 
     """
-    def __init__(self, key:str="", file_path:str = "",only_download:bool=False):
+    def __init__(self, key:str="", file_path:str = "",only_download:bool=False, save_path:str="", get_ref:bool=True, verbose:bool=True,configured:bool=True):
         if not key:
             raise Exception("No API key was provided")
-        else:
+        elif configured:
             web.configure(key)
 
         if not file_path:
@@ -27,32 +27,36 @@ class loadFromFile:
 
         self.structure_name = Path(file_path).stem
 
-        store_path = fr"H:\phd stuff\tidy3d/output/{file_path[file_path.find("data"):]}/Data"
+        store_path =  fr"H:\phd stuff\tidy3d/output/{file_path[file_path.find("data"):]}/Data" if save_path=="" else save_path + rf"/{file_path[file_path.find("data"):]}/Data"
         self.only_download = only_download
 
         if only_download:
             if Path(store_path+".hdf5").is_file():
-                print("File already exists!")
+                test = False
+                # print("File already exists!")
             else:
-                try:
-                    web.load(self.list_id[0] ,path=store_path+"_0.hdf5")
-                except:
-                    print("No Reference Simulation was found for this case")
+                if get_ref:
+                    try:
+                        web.download(self.list_id[0] ,path=store_path+"_0.hdf5", verbose=verbose)
+                    except:
+                        print("No Reference Simulation was found for this case")
                
-                web.load(self.list_id[1],path=store_path+".hdf5")
+                web.download(self.list_id[1],path=store_path+".hdf5", verbose=verbose)
             return None
         
         if Path(store_path+".hdf5").is_file():
-            try:
-                self.sim_data0 =  td.SimulationData.from_hdf5(store_path+"_0.hdf5")
-            except:
-                print("No Reference Simulation was found for this case")
+            if get_ref:
+                try:
+                    self.sim_data0 =  td.SimulationData.from_hdf5(store_path+"_0.hdf5")
+                except:
+                    print("No Reference Simulation was found for this case")
             self.sim_data =  td.SimulationData.from_hdf5(store_path+".hdf5")
         else:
-            try:
-                    self.sim_data0=web.load(self.list_id[0] ,path=store_path+"_0.hdf5")
-            except:
-                    print("No Reference Simulation was found for this case")
+            if get_ref:
+                try:
+                        self.sim_data0=web.load(self.list_id[0] ,path=store_path+"_0.hdf5")
+                except:
+                        print("No Reference Simulation was found for this case")
 
             self.sim_data = web.load(self.list_id[1],path=store_path+".hdf5")
 

@@ -53,7 +53,7 @@ class loadAndRunStructure:
         # Load HDF5 file
         if  self.file_format == ".h5":
             with h5py.File(self.file, 'r') as f:
-                self.permittivity_raw = np.ceil(np.array(f['epsilon']))
+                self.permittivity_raw = np.array(f['epsilon'])
                 if cut_condition < 1 :
                     if direction == "x":
                         self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[0]*cut_condition-1)])
