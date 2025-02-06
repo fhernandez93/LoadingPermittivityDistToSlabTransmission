@@ -29,7 +29,7 @@ class loadAndRunStructure:
                  width:float=0.4, freqs:int=400,permittivity:float=1, use_permittivity:bool=False,
                  min_steps_per_lambda:int = 20, permittivity_dist:str="", scaling:float=1.0,shuoff_condtion:float=1e-7,
                  sim_mode:str = "transmission", subpixel:bool=True, verbose:bool=False, monitors:list=[], cut_condition:float=1,
-                 source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=0.01, multiplication_factor:int = 1,pol_angle:float = 0,
+                 source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=None,source_size:float=0, multiplication_factor:int = 1,pol_angle:float = 0,
                  ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0
                  ):
         if not key:
@@ -61,7 +61,17 @@ class loadAndRunStructure:
                         self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[1]*cut_condition-1)])
                     elif direction == "z":
                         self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[2]*cut_condition-1)])
-
+                elif cut_condition > 1:
+                    if direction == "x":
+                        extra_slice = self.permittivity_raw[:int(np.shape(self.permittivity_raw)[0] * (cut_condition - 1)), :, :]
+                        self.permittivity_raw = np.concatenate((self.permittivity_raw, extra_slice), axis=0)
+                    elif direction == "y":
+                        extra_slice = self.permittivity_raw[:, :int(np.shape(self.permittivity_raw)[1] * (cut_condition - 1)), :]
+                        self.permittivity_raw = np.concatenate((self.permittivity_raw, extra_slice), axis=1)
+                    elif direction == "z":
+                        extra_slice = self.permittivity_raw[:, :, :int(np.shape(self.permittivity_raw)[2] * (cut_condition - 1))]
+                        self.permittivity_raw = np.concatenate((self.permittivity_raw, extra_slice), axis=2)
+                                
         if use_permittivity:
             self.permittivity_raw[self.permittivity_raw>1] += (permittivity - np.max(self.permittivity_raw))
             self.permittivity_raw[self.permittivity_raw<1] = 1
@@ -71,6 +81,7 @@ class loadAndRunStructure:
         self.absorbers = absorbers
         self.pol_angle = pol_angle
         self.ref_only = ref_only
+        self.source_size = source_size
         self.multiplicate_size = multiplicate_size
         self.multiplication_factor = multiplication_factor
         self.tight_percentage = tight_percentage
@@ -159,15 +170,15 @@ class loadAndRunStructure:
                   ) if self.source == "planewave"
                   else 
                   (
-                    0  if self.direction == "x" else self.t_slab_x*self.tight_percentage,
-                    0  if self.direction == "y" else self.t_slab_y*self.tight_percentage,
-                    0  if self.direction == "z" else self.t_slab_z*self.tight_percentage
+                    0  if self.direction == "x" else (self.t_slab_x*self.tight_percentage if self.tight_percentage else self.source_size),
+                    0  if self.direction == "y" else (self.t_slab_y*self.tight_percentage if self.tight_percentage else self.source_size),
+                    0  if self.direction == "z" else (self.t_slab_z*self.tight_percentage if self.tight_percentage else self.source_size)
 
                   )
                   ,
             center=((-self.Lx*0.5+self.spacing*0.1) if self.direction == "x" else 0, 
                     (-self.Ly*0.5+self.spacing*0.1) if self.direction == "y" else 0, 
-                    (-self.Lz*0.5+self.spacing*0.1) if self.direction == "z" else 0) if self.source == "planewave" 
+                    (-self.Lz*0.5+1) if self.direction == "z" else 0) if self.source == "planewave" 
                     
                     
                     else 
@@ -661,7 +672,7 @@ class loadAndRunStructure:
         return cost
     
     def run_sim(self,run_free:bool = True,folder_description:str="",max_grid_size:int = 100,max_time_steps:int=50e3, 
-                load:bool=True, run:bool=True,add_ref:bool=True):
+                load:bool=True, run:bool=True,add_ref:bool=True,monitor:bool=False):
         """
         If run for free is set to True the simulation won't be executed if the predefined max grid size or time step values are surpassed. 
         To fix this, reduce the min_steps_per_wvl on the class definition, decrease run time, or set run_free to False.
@@ -688,13 +699,15 @@ class loadAndRunStructure:
                 id_0 =web.upload(sim0, folder_name=folder_name,task_name=task_name_def+'_0', verbose=self.verbose)
                 if run:
                     web.start(task_id = id_0)
-                    web.monitor(task_id=id_0,verbose=self.verbose)
+                    if monitor:
+                        web.monitor(task_id=id_0,verbose=self.verbose)
 
             
             id =web.upload(sim, folder_name=folder_name,task_name=task_name_def, verbose=self.verbose)
             if run:
                 web.start(task_id = id)
-                web.monitor(task_id=id,verbose=self.verbose)
+                if monitor:
+                    web.monitor(task_id=id,verbose=self.verbose)
 
             #Store ids in an file 
 
