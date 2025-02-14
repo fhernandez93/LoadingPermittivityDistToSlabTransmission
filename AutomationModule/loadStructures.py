@@ -28,9 +28,9 @@ class loadAndRunStructure:
                  lambda_range: list= [], box_size:float = 0, runtime: int = 0, 
                  width:float=0.4, freqs:int=400,permittivity:float=1, use_permittivity:bool=False,
                  min_steps_per_lambda:int = 20, permittivity_dist:str="", scaling:float=1.0,shuoff_condtion:float=1e-7,
-                 sim_mode:str = "transmission", subpixel:bool=True, verbose:bool=False, monitors:list=[], cut_condition:float=1,
+                 sim_mode:str = "transmission", subpixel:bool=True, verbose:bool=False, monitors:list=[], cut_condition:float=1, cut_cell:float=False,cell_size_manual:float=None,
                  source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=None,source_size:float=0, multiplication_factor:int = 1,pol_angle:float = 0,
-                 ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0
+                 ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0,flux_monitor_position:float=None
                  ):
         if not key:
             raise Exception("No API key was provided")
@@ -78,6 +78,7 @@ class loadAndRunStructure:
 
 
         self.sim_name = sim_name
+        self.flux_monitor_position = flux_monitor_position
         self.absorbers = absorbers
         self.pol_angle = pol_angle
         self.ref_only = ref_only
@@ -127,9 +128,9 @@ class loadAndRunStructure:
         self.t_slab_z = self.t_slab*cut_condition if direction=="z" else self.t_slab
        
         self.sim_size = self.Lx, self.Ly, self.Lz = (
-                                      (self.t_slab_x+self.spacing*2 if direction == "x" else self.t_slab_x),
-                                      (self.t_slab_y+self.spacing*2 if direction == "y" else self.t_slab_y),
-                                      self.t_slab_z+self.spacing*2 if direction == "z" else self.t_slab_z
+                                      ((self.t_slab_x)/(cut_condition if not cut_cell else 1)+self.spacing*2 if direction == "x" else self.t_slab_x),
+                                      ((self.t_slab_y)/(cut_condition if not cut_cell else 1)+self.spacing*2 if direction == "y" else self.t_slab_y),
+                                     (cell_size_manual if cell_size_manual else (self.t_slab_z)/(cut_condition if not cut_cell else 1)+self.spacing*2 if direction == "z" else self.t_slab_z)
                                       )
         
         self.sim = self.simulation_definition()
@@ -202,9 +203,9 @@ class loadAndRunStructure:
         if "flux" in self.monitors:
             self.monitor_1 = td.FluxMonitor(
                 center = (
-                            (self.Lx - self.spacing)*0.5 if self.direction == "x" else 0, 
-                            (self.Ly - self.spacing)*0.5 if self.direction == "y" else 0, 
-                            (self.Lz - self.spacing)*0.5 if self.direction == "z" else 0
+                            self.flux_monitor_position if self.flux_monitor_position else ((self.Lx - self.spacing)*0.5 if self.direction == "x" else 0), 
+                            self.flux_monitor_position if self.flux_monitor_position else ((self.Ly - self.spacing)*0.5 if self.direction == "y" else 0), 
+                            self.flux_monitor_position if self.flux_monitor_position else ((self.Lz - self.spacing)*0.5 if self.direction == "z" else 0)
                             ),
                 size = (
                     0 if self.direction == "x" else td.inf, 
