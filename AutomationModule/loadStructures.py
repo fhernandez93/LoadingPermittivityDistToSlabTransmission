@@ -30,7 +30,7 @@ class loadAndRunStructure:
                  min_steps_per_lambda:int = 20, permittivity_dist:str="", scaling:float=1.0,shuoff_condtion:float=1e-7,
                  sim_mode:str = "transmission", subpixel:bool=True, verbose:bool=False, monitors:list=[], cut_condition:float=1, cut_cell:float=False,cell_size_manual:float=None,
                  source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=None,source_size:float=0, multiplication_factor:int = 1,pol_angle:float = 0,
-                 ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0,flux_monitor_position:float=None
+                 ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0,flux_monitor_position:float=None, h5_bg:float=None,  sim_bg:float=1.0
                  ):
         if not key:
             raise Exception("No API key was provided")
@@ -48,6 +48,7 @@ class loadAndRunStructure:
         
         
         #import structure or permittivity distribution 
+        self.sim_bg = sim_bg
         self.file = file_path
         self.structure_name = Path(file_path).stem
         # Load HDF5 file
@@ -71,6 +72,9 @@ class loadAndRunStructure:
                     elif direction == "z":
                         extra_slice = self.permittivity_raw[:, :, :int(np.shape(self.permittivity_raw)[2] * (cut_condition - 1))]
                         self.permittivity_raw = np.concatenate((self.permittivity_raw, extra_slice), axis=2)
+            
+            if h5_bg:
+                self.permittivity_raw[self.permittivity_raw<1.0001] = h5_bg
                                 
         if use_permittivity:
             self.permittivity_raw[self.permittivity_raw>1] += (permittivity - np.max(self.permittivity_raw))
@@ -556,7 +560,9 @@ class loadAndRunStructure:
             boundary_spec = definitions['boundary_spec'],
             normalize_index = None,
             structures = definitions['structures'],
-            subpixel=self.subpixel
+            subpixel=self.subpixel,
+            medium=td.Medium(permittivity=self.sim_bg)
+            
 
             )
         
