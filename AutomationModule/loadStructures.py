@@ -30,7 +30,8 @@ class loadAndRunStructure:
                  min_steps_per_lambda:int = 20, permittivity_dist:str="", scaling:float=1.0,shuoff_condtion:float=1e-7,
                  sim_mode:str = "transmission", subpixel:bool=True, verbose:bool=False, monitors:list=[], cut_condition:float=1, cut_cell:float=False,cell_size_manual:float=None,
                  source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=None,source_size:float=0, multiplication_factor:int = 1,pol_angle:float = 0,
-                 ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0,flux_monitor_position:float=None, h5_bg:float=None,  sim_bg:float=1.0
+                 ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0,flux_monitor_position:float=None, h5_bg:float=None,  sim_bg:float=1.0, far_field_settings:any=None,gaussian_params:any=None,
+                 boundaries:str="periodic"
                  ):
         if not key:
             raise Exception("No API key was provided")
@@ -82,8 +83,11 @@ class loadAndRunStructure:
 
 
         self.sim_name = sim_name
+        self.far_field_settings = far_field_settings
+        self.gaussian_params = gaussian_params
         self.flux_monitor_position = flux_monitor_position
         self.absorbers = absorbers
+        self.boundaries = boundaries
         self.pol_angle = pol_angle
         self.ref_only = ref_only
         self.source_size = source_size
@@ -164,51 +168,109 @@ class loadAndRunStructure:
     
     def createSimObjects(self):
         #Defining Source
-        self.source_def = td.PlaneWave(
-            source_time = td.GaussianPulse(
-                freq0=self.freq0,
-                fwidth=self.freqw
-            ),
-            size= (0 if self.direction == "x" else td.inf, 
-                  0 if self.direction == "y" else td.inf, 
-                  0 if self.direction == "z" else td.inf
-                  ) if self.source == "planewave"
-                  else 
-                  (
-                    0  if self.direction == "x" else (self.t_slab_x*self.tight_percentage if self.tight_percentage else self.source_size),
-                    0  if self.direction == "y" else (self.t_slab_y*self.tight_percentage if self.tight_percentage else self.source_size),
-                    0  if self.direction == "z" else (self.t_slab_z*self.tight_percentage if self.tight_percentage else self.source_size)
 
-                  )
-                  ,
-            center=((-self.Lx*0.5+self.spacing*0.1) if self.direction == "x" else 0, 
-                    (-self.Ly*0.5+self.spacing*0.1) if self.direction == "y" else 0, 
-                    (-self.Lz*0.5+1) if self.direction == "z" else 0) if self.source == "planewave" 
-                    
-                    
-                    else 
+        if self.source in ["planewave", "tight"]:
+            self.source_def = td.PlaneWave(
+                source_time = td.GaussianPulse(
+                    freq0=self.freq0,
+                    fwidth=self.freqw
+                ),
+                size= (0 if self.direction == "x" else td.inf, 
+                      0 if self.direction == "y" else td.inf, 
+                      0 if self.direction == "z" else td.inf
+                      ) if self.source == "planewave"
+                      else 
+                      (
+                        0  if self.direction == "x" else (self.t_slab_x*self.tight_percentage if self.tight_percentage else self.source_size),
+                        0  if self.direction == "y" else (self.t_slab_y*self.tight_percentage if self.tight_percentage else self.source_size),
+                        0  if self.direction == "z" else (self.t_slab_z*self.tight_percentage if self.tight_percentage else self.source_size)
 
-                    (
-                        -self.t_slab_x/2-self.spacing/2 if self.direction == "x" else 0,
-                        -self.t_slab_y/2-self.spacing/2 if self.direction == "y" else 0,
-                        -self.t_slab_z/2-self.spacing/2 if self.direction == "z" else 0
-                     
-                     
-                     )
-                    
-                    ,
-            direction='+',
-            pol_angle=self.pol_angle,
+                      )
+                      ,
+                center=((-self.Lx*0.5+self.spacing*0.1) if self.direction == "x" else 0, 
+                        (-self.Ly*0.5+self.spacing*0.1) if self.direction == "y" else 0, 
+                        (-self.Lz*0.5+1) if self.direction == "z" else 0) if self.source == "planewave" 
+
+
+                        else 
+
+                        (
+                            -self.t_slab_x/2-self.spacing/2 if self.direction == "x" else 0,
+                            -self.t_slab_y/2-self.spacing/2 if self.direction == "y" else 0,
+                            -self.t_slab_z/2-self.spacing/2 if self.direction == "z" else 0
+
+
+                         )
+
+                        ,
+                direction='+',
+                pol_angle=self.pol_angle,
+
+                name='planewave',
+                )
             
-            name='planewave',
-            )
+        if self.source == "gaussian":
+                self.source_def = td.GaussianBeam(
+                source_time = td.GaussianPulse(
+                    freq0=self.freq0,
+                    fwidth=self.freqw
+                ),
+                size= (0 if self.direction == "x" else self.gaussian_params.get("size", td.inf), 
+                      0 if self.direction == "y" else self.gaussian_params.get("size", td.inf), 
+                      0 if self.direction == "z" else self.gaussian_params.get("size", td.inf)
+                      ) 
+                      ,
+                center=((-self.Lx*0.5+self.spacing*0.1) if self.direction == "x" else self.gaussian_params.get("position_x", 0), 
+                        (-self.Ly*0.5+self.spacing*0.1) if self.direction == "y" else  self.gaussian_params.get("position_y", 0), 
+                        (-self.Lz*0.5+1) if self.direction == "z" else  self.gaussian_params.get("position_z", 0)),
+
+                direction='+',
+                pol_angle=self.pol_angle,
+                angle_phi=  self.gaussian_params.get("phi", 0),
+                angle_theta= self.gaussian_params.get("theta", 0),
+                waist_distance=self.gaussian_params["waist_distance"],
+                waist_radius=self.gaussian_params["waist_radius"],
+                name='gaussian',
+                )
+                
+        
+            
+        
         ################Defining monitors###########################################
         self.monitors_names = []
+
+        if 'far_field' in self.monitors:
+            if self.far_field_settings: 
+                self.far_field_monitor =td.FieldProjectionAngleMonitor(
+                    center = (
+                            0 if self.flux_monitor_position else ((self.Lx - self.spacing)*0.5 if self.direction == "x" else 0), 
+                            0 if self.flux_monitor_position else ((self.Ly - self.spacing)*0.5 if self.direction == "y" else 0), 
+                            self.flux_monitor_position if self.flux_monitor_position else ((self.Lz - self.spacing)*0.5 if self.direction == "z" else 0)
+                            ),  
+                    size = (
+                    0 if self.direction == "x" else td.inf, 
+                    0 if self.direction == "y" else td.inf, 
+                    0 if self.direction == "z" else td.inf, 
+                    ),
+                    freqs=self.monitor_freqs,
+                    name="far_field",
+                    window_size= (self.far_field_settings["window_size"],self.far_field_settings["window_size"]),
+                    normal_dir="+",
+                    phi=list(self.far_field_settings["phi"]),
+                    theta=list(self.far_field_settings["theta"]),
+                    proj_distance=self.far_field_settings["r"],
+                    far_field_approx=True, 
+                )
+                self.monitors_names += [self.far_field_monitor]
+            else:
+                raise Exception("No far field settings were provided")
+
+
         if "flux" in self.monitors:
             self.monitor_1 = td.FluxMonitor(
                 center = (
-                            self.flux_monitor_position if self.flux_monitor_position else ((self.Lx - self.spacing)*0.5 if self.direction == "x" else 0), 
-                            self.flux_monitor_position if self.flux_monitor_position else ((self.Ly - self.spacing)*0.5 if self.direction == "y" else 0), 
+                            0 if self.flux_monitor_position else ((self.Lx - self.spacing)*0.5 if self.direction == "x" else 0), 
+                            0 if self.flux_monitor_position else ((self.Ly - self.spacing)*0.5 if self.direction == "y" else 0), 
                             self.flux_monitor_position if self.flux_monitor_position else ((self.Lz - self.spacing)*0.5 if self.direction == "z" else 0)
                             ),
                 size = (
@@ -517,9 +579,9 @@ class loadAndRunStructure:
         #Boundary conditions 
 
         boundaries= td.BoundarySpec(
-            x=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if self.direction=="x" else td.Boundary.periodic(),
-            y=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if self.direction=="y" else td.Boundary.periodic(),
-            z=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if self.direction=="z" else td.Boundary.periodic(),
+            x=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if (self.direction=="x" or self.boundaries=="absorbers") else td.Boundary.periodic(),
+            y=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if( self.direction=="y" or self.boundaries=="absorbers") else td.Boundary.periodic(),
+            z=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if (self.direction=="z" or self.boundaries=="absorbers") else td.Boundary.periodic(),
         )
 
         #Mesh override structure 
