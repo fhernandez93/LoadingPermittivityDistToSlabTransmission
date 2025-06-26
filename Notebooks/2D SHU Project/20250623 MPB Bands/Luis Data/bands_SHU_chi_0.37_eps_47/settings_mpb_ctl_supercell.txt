@@ -1,0 +1,8 @@
+1_sample_chi_0.37_posics.dat	positions_file  !file name of the file containing the collection of points
+47.00D0				eps   !permittivity of the cylinders
+0.189D0				radius  !radius of the cylinders in the same length units of the file
+600				num_bands !number of bands to calculate
+9				num_interp  !number of points interpolating two pints in the k structure
+32				resolution !resolution of the mpb
+1.E-4				!tolerance of the eigensolver
+1_sample_chi_0.37_bands			core_name  !core_name for the output file (the .ctl file)

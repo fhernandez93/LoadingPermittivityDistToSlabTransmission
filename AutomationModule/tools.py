@@ -8,6 +8,9 @@ import tidy3d as td
 import matplotlib
 import matplotlib.patches as patches
 import matplotlib.colors as mcolors
+from scipy.fft import fftn, ifftn, fftshift
+from scipy.interpolate import interp1d
+from scipy.signal import argrelextrema
 
 
 def _write_dict_to_hdf5(data, hdf_group):
@@ -129,3 +132,72 @@ def create_movie(sim_result, monitor_lambdas,name='',type='t',log=False,path="",
             os.remove(frame)
     
     return False
+
+### Calculate the charactieristic lenght from the correlations 
+
+def compute_normalized_autocorrelation_fft(density_field_3d):
+    # Subtract mean to center the data
+    rho = density_field_3d - np.mean(density_field_3d)
+    
+    # Compute autocorrelation via FFT
+    fft_rho = fftn(rho)
+    autocorr = np.real(ifftn(np.abs(fft_rho)**2))
+    
+    # Normalize
+    autocorr /= np.prod(rho.shape)
+    autocorr /= np.var(density_field_3d)  # Now C(0) = 1
+
+    return fftshift(autocorr)
+
+# Extract radial profile C_r(δr)
+def radial_profile(data, L:float, bins=50):
+    nx, ny, nz = data.shape
+    dx =L / nx
+
+    # Build coordinate grid in physical units
+    x = np.arange(nx) - (nx - 1) / 2
+    y = np.arange(ny) - (ny - 1) / 2
+    z = np.arange(nz) - (nz - 1) / 2
+    X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
+    r = dx * np.sqrt(X**2 + Y**2 + Z**2)
+
+    # Flatten
+    r = r.flatten()
+    data = data.flatten()
+    # Bin and average
+    r_bins = np.linspace(0, r.max(), bins + 1)
+    r_vals = 0.5 * (r_bins[1:] + r_bins[:-1])
+    digitized = np.digitize(r, r_bins)
+    radial_C = np.array([data[digitized == i].mean() if np.any(digitized == i) else 0.0
+                         for i in range(1, bins + 1)])
+    return r_vals, radial_C
+
+# Compute normalized autocorrelation
+def get_a_from_h5_eps(file:str, L:float,plot_correlation:bool=True):
+    with h5py.File(file, 'r') as f:
+        permittivity_raw = np.array(f['epsilon'])
+        density_normalized = (permittivity_raw - permittivity_raw.min()) / (permittivity_raw.max() - permittivity_raw.min())
+
+        autocorr = compute_normalized_autocorrelation_fft(density_normalized)
+        r_vals, C_r = radial_profile(autocorr,L=L)
+        r_vals = r_vals[~np.isnan(C_r)]
+        C_r = C_r[~np.isnan(C_r)]
+        f_interp = interp1d(r_vals, C_r, kind='cubic')  # 'cubic' or 'quadratic' for smooth curves
+        x_fine = np.linspace(r_vals.min(), r_vals.max(), 10000)
+        y_fine = f_interp(x_fine)
+        local_maxima_indices = argrelextrema(y_fine, np.greater)[0]
+
+        print(f"First maximum at x = {x_fine[local_maxima_indices[0]]}, y = {y_fine[local_maxima_indices[0]]}")
+        a=x_fine[local_maxima_indices[0]]
+        if plot_correlation:
+            plt.plot(r_vals/a, C_r , 'o', label='Original points')
+            plt.plot(x_fine/a, y_fine, '-', label='Interpolated curve')
+            plt.plot(x_fine[local_maxima_indices]/a, y_fine[local_maxima_indices], 'rx', label='Local maxima')
+            plt.xlabel(r'$r/a$')
+            plt.ylabel(r'$C_r(\delta r)$')
+            plt.title(f'Normalized Radial Autocorrelation a={a:.2f}')
+            plt.grid(True)
+            plt.legend()
+            plt.show()
+
+        return a,x_fine,y_fine

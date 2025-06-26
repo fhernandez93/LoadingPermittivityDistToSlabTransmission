@@ -31,7 +31,7 @@ class loadAndRunStructure:
                  sim_mode:str = "transmission", subpixel:bool=True, verbose:bool=False, monitors:list=[], cut_condition:float=1, cut_cell:float=False,cell_size_manual:float=None,
                  source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=None,source_size:float=0, multiplication_factor:int = 1,pol_angle:float = 0,
                  ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0,flux_monitor_position:float=None, h5_bg:float=None,  sim_bg:float=1.0, far_field_settings:any=None,gaussian_params:any=None,
-                 boundaries:str="periodic"
+                 boundaries:str="periodic", cut_slab_array_size:dict=None
                  ):
         if not key:
             raise Exception("No API key was provided")
@@ -56,7 +56,7 @@ class loadAndRunStructure:
         if  self.file_format == ".h5":
             with h5py.File(self.file, 'r') as f:
                 self.permittivity_raw = np.array(f['epsilon'])
-                if cut_condition < 1 :
+                if cut_condition < 1:
                     if direction == "x":
                         self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[0]*cut_condition-1)])
                     elif direction == "y":
@@ -73,6 +73,10 @@ class loadAndRunStructure:
                     elif direction == "z":
                         extra_slice = self.permittivity_raw[:, :, :int(np.shape(self.permittivity_raw)[2] * (cut_condition - 1))]
                         self.permittivity_raw = np.concatenate((self.permittivity_raw, extra_slice), axis=2)
+            
+            if cut_slab_array_size:
+                self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[0]*cut_slab_array_size["x"]-1)])
+                self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[1]*cut_slab_array_size["y"]-1)])
             
             if h5_bg:
                 self.permittivity_raw[self.permittivity_raw<1.0001] = h5_bg

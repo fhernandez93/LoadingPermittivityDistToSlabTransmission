@@ -9,7 +9,7 @@ from pathlib import Path
 
 class loadFromFile:
     """
-    Load results from txt file 
+    Load results from txt or hdf5 data files
     """
     def __init__(self, key:str="", file_path:str = "",only_download:bool=False, save_path:str="", get_ref:bool=True, verbose:bool=True,configured:bool=True):
         if not key:
@@ -21,30 +21,36 @@ class loadFromFile:
             raise Exception("No file was provided")
         
         self.list_id = []
-        with open(file_path, 'r') as file:
-            for line in file:
-                self.list_id+=[line.strip()] 
 
-        self.structure_name = Path(file_path).stem
 
-        store_path =  fr"H:\phd stuff\tidy3d/output/{file_path[file_path.find("data"):]}/Data" if save_path=="" else save_path + rf"/{file_path[file_path.find("data"):]}/Data"
-        self.only_download = only_download
+        if (Path(file_path).suffix==".txt"):
+            with open(file_path, 'r') as file:
+                for line in file:
+                    self.list_id+=[line.strip()] 
 
-        if only_download:
-            if Path(store_path+".hdf5").is_file():
-                test = False
-                # print("File already exists!")
-            else:
-                if get_ref:
-                    try:
-                        web.download(self.list_id[0] ,path=store_path+"_0.hdf5", verbose=verbose)
-                    except:
-                        print("No Reference Simulation was found for this case")
-               
-                web.download(self.list_id[1],path=store_path+".hdf5", verbose=verbose)
-            return None
+            self.structure_name = Path(file_path).stem
+
+            store_path =  fr"H:\phd stuff\tidy3d/output/{file_path[file_path.find("data"):]}/Data" if save_path=="" else save_path + rf"/{file_path[file_path.find("data"):]}/Data"
+            self.only_download = only_download
+
+            if only_download:
+                if Path(store_path+".hdf5").is_file():
+                    print("File already exists!")
+                else:
+                    if get_ref:
+                        try:
+                            web.download(self.list_id[0] ,path=store_path+"_0.hdf5", verbose=verbose)
+                        except:
+                            print("No Reference Simulation was found for this case")
+
+                    web.download(self.list_id[1],path=store_path+".hdf5", verbose=verbose)
+                return None
+            
+        else: 
+            store_path =  save_path + rf"/{file_path[file_path.find("data"):]}/Data"
+
         
-        if Path(store_path+".hdf5").is_file():
+        if  Path(store_path+".hdf5").is_file():
             if get_ref:
                 try:
                     self.sim_data0 =  td.SimulationData.from_hdf5(store_path+"_0.hdf5")
