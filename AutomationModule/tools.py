@@ -201,3 +201,27 @@ def get_a_from_h5_eps(file:str, L:float,plot_correlation:bool=True):
             plt.show()
 
         return a,x_fine,y_fine
+    
+
+def unwrap_h5(obj):
+    """Automatically convert HDF5 objects to appropriate Python types."""
+    if isinstance(obj, h5py.Dataset):
+        data = obj[()]
+        # If it's a scalar, convert to native type
+        if np.isscalar(data):
+            return data.item()
+        # If it's bytes, decode to string
+        if isinstance(data, bytes):
+            return data.decode()
+        # If it's a numpy array of bytes (e.g. for string arrays)
+        if data.dtype.kind in {'S', 'O'}:
+            try:
+                return data.astype(str).tolist()
+            except Exception:
+                return data.tolist()
+        return data
+    elif isinstance(obj, h5py.Group):
+        # For groups, recursively parse contents
+        return {key: unwrap_h5(obj[key]) for key in obj.keys()}
+    else:
+        return obj

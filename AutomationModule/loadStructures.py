@@ -745,7 +745,7 @@ class loadAndRunStructure:
         return cost
     
     def run_sim(self,run_free:bool = True,folder_description:str="",max_grid_size:int = 100,max_time_steps:int=50e3, 
-                load:bool=True, run:bool=True,add_ref:bool=True,monitor:bool=False):
+                load:bool=True, run:bool=True,add_ref:bool=True,monitor:bool=False,name_sim:str=""):
         """
         If run for free is set to True the simulation won't be executed if the predefined max grid size or time step values are surpassed. 
         To fix this, reduce the min_steps_per_wvl on the class definition, decrease run time, or set run_free to False.
@@ -766,6 +766,8 @@ class loadAndRunStructure:
 
             folder_name = folder_description
             task_name_def = f'{self.structure_name}_eps_{self.permittivity_value}_size_{size:.3g}_runtime_{self.runtime:.3g}_lambdaRange_{self.lambda_range[0]:.3g}-{self.lambda_range[1]:.3g}_incidence_{self.direction}' if not self.sim_name else self.sim_name 
+            if name_sim:
+                task_name_def=name_sim
             #Normalization task
             if add_ref:
                 sim0 = sim.copy(update={'structures':[]})
@@ -803,7 +805,11 @@ class loadAndRunStructure:
             raise Exception("Reduce time steps or grid size")
         
         if load:
-                sim_data0=web.load(id_0)
+                if add_ref:
+                 sim_data0=web.load(id_0)
+                else: 
+                    sim_data0=""
+
                 sim_data=web.load(id)
                 return (sim_data, sim_data0,task_name_def)
         else:
