@@ -15,6 +15,7 @@ from scipy.signal import argrelextrema
 
 def _write_dict_to_hdf5(data, hdf_group):
     for key, value in data.items():
+        key = str(key)
         if isinstance(value, dict):
             # If the value is a nested dictionary, create a group and call recursively
             subgroup = hdf_group.create_group(key)
@@ -183,7 +184,7 @@ def get_a_from_h5_eps(file:str, L:float,plot_correlation:bool=True):
         r_vals = r_vals[~np.isnan(C_r)]
         C_r = C_r[~np.isnan(C_r)]
         f_interp = interp1d(r_vals, C_r, kind='cubic')  # 'cubic' or 'quadratic' for smooth curves
-        x_fine = np.linspace(r_vals.min(), r_vals.max(), 10000)
+        x_fine = np.linspace(r_vals.min(), r_vals.max(), 20000)
         y_fine = f_interp(x_fine)
         local_maxima_indices = argrelextrema(y_fine, np.greater)[0]
 
@@ -207,14 +208,14 @@ def unwrap_h5(obj):
     """Automatically convert HDF5 objects to appropriate Python types."""
     if isinstance(obj, h5py.Dataset):
         data = obj[()]
-        # If it's a scalar, convert to native type
+        # If it's bytes, decode to string
+        if isinstance(data, (bytes, bytearray)):
+            return data.decode()
+        # If it's a scalar NumPy type, convert to native Python
         if np.isscalar(data):
             return data.item()
-        # If it's bytes, decode to string
-        if isinstance(data, bytes):
-            return data.decode()
         # If it's a numpy array of bytes (e.g. for string arrays)
-        if data.dtype.kind in {'S', 'O'}:
+        if hasattr(data, "dtype") and data.dtype.kind in {"S", "O"}:
             try:
                 return data.astype(str).tolist()
             except Exception:
@@ -225,3 +226,8 @@ def unwrap_h5(obj):
         return {key: unwrap_h5(obj[key]) for key in obj.keys()}
     else:
         return obj
+
+    
+def read_hdf5_as_dict(filename):
+    with h5py.File(filename, 'r') as hdf_file:
+        return unwrap_h5(hdf_file)

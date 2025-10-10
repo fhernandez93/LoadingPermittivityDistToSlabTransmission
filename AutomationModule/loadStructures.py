@@ -50,6 +50,7 @@ class loadAndRunStructure:
         
         #import structure or permittivity distribution 
         self.sim_bg = sim_bg
+        self.h5_bg = h5_bg
         self.file = file_path
         self.structure_name = Path(file_path).stem
         # Load HDF5 file
@@ -144,7 +145,7 @@ class loadAndRunStructure:
                                       ((self.t_slab_y)/(cut_condition if not cut_cell else 1)+self.spacing*2 if direction == "y" else self.t_slab_y),
                                      (cell_size_manual if cell_size_manual else (self.t_slab_z)/(cut_condition if not cut_cell else 1)+self.spacing*2 if direction == "z" else self.t_slab_z)
                                       )
-        
+        self.sim_object = self.createSimObjects()
         self.sim = self.simulation_definition()
        
 
@@ -289,7 +290,7 @@ class loadAndRunStructure:
                 center = (
                         (-self.Lx+self.spacing)*0.5 if self.direction =="x" else 0, 
                         (-self.Ly+self.spacing)*0.5 if self.direction =="y" else 0, 
-                        (-self.Lz+self.spacing)*0.5 if self.direction =="z" else 0
+                        -self.flux_monitor_position if self.flux_monitor_position else ((-self.Lz+self.spacing)*0.5 if self.direction =="z" else 0)
                         ),
                 size = (
                     0 if self.direction == "x" else td.inf, 
@@ -302,24 +303,39 @@ class loadAndRunStructure:
 
             self.monitors_names += [self.monitor_1,self.monitor_2]
 
+        if "flux_reflection" in self.monitors:
+            
+            self.monitor_reflection = td.FluxMonitor(
+               center=((-self.Lx*0.5+self.spacing*0.1) if self.direction == "x" else 0, 
+                        (-self.Ly*0.5+self.spacing*0.1) if self.direction == "y" else 0, 
+                        (-self.Lz*0.5+0.5) if self.direction == "z" else 0),
+                size = (
+                    0 if self.direction == "x" else td.inf, 
+                    0 if self.direction == "y" else td.inf, 
+                    0 if self.direction == "z" else td.inf
+                    ),
+                freqs = self.monitor_freqs,
+                name='flux_reflection'
+            )
+
+            self.monitors_names += [self.monitor_reflection]
+
 
         # Records time-dependent transmitted flux through the slab
         if "time_monitor" in self.monitors:
             self.time_monitorT = td.FluxTimeMonitor(
-                    center=[
-                        (self.Lx - self.spacing)*0.5 if self.direction == "x" else 0, 
-                        (self.Ly - self.spacing)*0.5 if self.direction == "y" else 0, 
-                        (self.Lz - self.spacing)*0.5 if self.direction == "z" else 0
-
-
-                        ],
-                    size=[
-                        0 if self.direction == "x" else td.inf, 
-                        0 if self.direction == "y" else td.inf, 
-                        0 if self.direction == "z" else td.inf
-                        ],
-                    interval = 200,
-                    name="time_monitorT",
+                        center = (
+                            0 if self.flux_monitor_position else ((self.Lx - self.spacing)*0.5 if self.direction == "x" else 0), 
+                            0 if self.flux_monitor_position else ((self.Ly - self.spacing)*0.5 if self.direction == "y" else 0), 
+                            self.flux_monitor_position if self.flux_monitor_position else ((self.Lz - self.spacing)*0.5 if self.direction == "z" else 0)
+                            ),
+                        size = (
+                            0 if self.direction == "x" else td.inf, 
+                            0 if self.direction == "y" else td.inf, 
+                            0 if self.direction == "z" else td.inf, 
+                            ),
+                            interval = 50,
+                            name="time_monitorT",
 
                 )
             self.monitors_names += [self.time_monitorT]
@@ -425,6 +441,7 @@ class loadAndRunStructure:
                 ###This Code creates several cubes and place them together
                 else: 
                     slabs = []
+                    slabs_ref = []
                     self.coordinates_slabs = []
                     
                     for i in range(self.multiplication_factor):
@@ -465,8 +482,22 @@ class loadAndRunStructure:
                         medium=dielectric,
                         name=f'slab{i}',
                         )
+
+                        slab_ref_i = td.Structure(
+                        geometry=td.Box(
+                            center= item["center"],
+                            size=(
+                                  x_size, 
+                                  y_size,
+                                  z_size
+                                  ),
+                        ),
+                        medium= td.Medium(permittivity=self.h5_bg if self.h5_bg else 1),
+                        name=f'slab_ref_{i}',
+                        )
     
                         slabs += [slab_i]
+                        slabs_ref += [slab_ref_i]
         
 
 
@@ -609,12 +640,13 @@ class loadAndRunStructure:
                 "run_time": self.t_stop,
                 "boundary_spec": boundaries,
                 "normalize_index": None,
-                "structures": [] if self.ref_only else ([slab] if not self.multiplicate_size else slabs)
+                "structures": [] if self.ref_only else ([slab] if not self.multiplicate_size else slabs),
+                "ref_structure":[] if self.ref_only else ([slab] if not self.multiplicate_size else slabs_ref),
                 }
     
     def simulation_definition(self):
 
-        definitions = self.createSimObjects()
+        definitions = self.sim_object
         sim = td.Simulation(
             center = (0, 0, 0),
             size = definitions['size'],
@@ -770,7 +802,7 @@ class loadAndRunStructure:
                 task_name_def=name_sim
             #Normalization task
             if add_ref:
-                sim0 = sim.copy(update={'structures':[]})
+                sim0 = sim.copy(update={'structures':[] if not self.h5_bg else self.sim_object["ref_structure"]})
                 id_0 =web.upload(sim0, folder_name=folder_name,task_name=task_name_def+'_0', verbose=self.verbose)
                 if run:
                     web.start(task_id = id_0)

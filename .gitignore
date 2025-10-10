@@ -10,3 +10,13 @@
 *.csv
 *.pyc
 *.dat
+*.pdf
+*.png
+*.txt
+*.out
+*.err
+*.ctl
+*.ctl~
+*.cmd
+*.cmd~
+*.mp4
