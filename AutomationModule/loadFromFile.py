@@ -41,7 +41,7 @@ class loadFromFile:
                         try:
                             web.download(self.list_id[0] ,path=store_path+"_0.hdf5", verbose=verbose)
                         except:
-                            print("No Reference Simulation was found for this case")
+                            print("No Reference Simulation was downloaded")
 
                     web.download(self.list_id[1],path=store_path+".hdf5", verbose=verbose)
                 return None
@@ -55,14 +55,14 @@ class loadFromFile:
                 try:
                     self.sim_data0 =  td.SimulationData.from_hdf5(store_path+"_0.hdf5")
                 except:
-                    print("No Reference Simulation was found for this case")
+                    print("No Reference Simulation was loaded")
             self.sim_data =  td.SimulationData.from_hdf5(store_path+".hdf5")
         else:
             if get_ref:
                 try:
                         self.sim_data0=web.load(self.list_id[0] ,path=store_path+"_0.hdf5")
                 except:
-                        print("No Reference Simulation was found for this case")
+                        print("No Reference Simulation was found")
 
             self.sim_data = web.load(self.list_id[1],path=store_path+".hdf5")
 
