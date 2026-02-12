@@ -12,6 +12,10 @@ from scipy.fft import fftn, ifftn, fftshift
 from scipy.interpolate import interp1d
 from scipy.signal import argrelextrema
 
+def moving_average(x, w=3):
+    if w==0:
+        return x
+    return np.convolve(x, np.ones(w), 'valid') / w
 
 def _write_dict_to_hdf5(data, hdf_group):
     for key, value in data.items():

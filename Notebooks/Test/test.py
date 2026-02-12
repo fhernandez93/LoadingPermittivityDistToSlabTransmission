@@ -31,6 +31,7 @@ tidy3dAPI = os.environ["API_TIDY3D_KEY"]
 
 
 folder = rf"H:\phd stuff\tidy3d\data\10_07_2024 Beam Spreading Broad Bandwidth Periodic Conditions Freq Domain"
+folder = rf"G:\Data Numerical Experiments\DataID\2D SHU Project\10_07_2024 Beam Spreading Broad Bandwidth Periodic Conditions Freq Domain"
        
 data_field_intensities = np.zeros(shape=(13,16,5,957,150))
 data_field_intensities_2 = np.zeros(shape=(13,16,5,957,150))
@@ -47,14 +48,14 @@ for i,item in enumerate(os.listdir(folder)):
             old_stdout = sys.stdout
             sys.stdout = io.StringIO()
             try:
-                sim_result = (AM.loadFromFile(key = tidy3dAPI, file_path=file, save_path=rf"F:\2D SHU Chi Statistics",only_download=False,get_ref=False))
+                sim_result = (AM.loadFromFile(key = tidy3dAPI, file_path=file, save_path=rf"F:\2D SHU Chi Statistics\data",only_download=False,get_ref=False))
             finally:
                 # Reset sys.stdout back to the original state
                 sys.stdout = old_stdout
             try:
                 intensity =(sim_result.sim_data.get_intensity("freq_monitorFieldOut").squeeze())
                 data_field_intensities[i,j,k]= (intensity[:957,np.where(intensity["y"]<=sizes[j]/2)[0][-1],:]).values
-                data_field_intensities_2[i,j,k]= (intensity[:957,np.where(intensity["y"]<=sizes[j]/2)[0][-3],:]).values
+                data_field_intensities_2[i,j,k]= (intensity[:957,np.where(intensity["y"]<=sizes[j]/2)[0][-15],:]).values
 
             except:
                 print(np.shape(np.array(sim_result.sim_data.get_intensity("freq_monitorFieldOut").values.squeeze()*1e30)))
@@ -72,4 +73,4 @@ AM.create_hdf5_from_dict({
     "sample":np.linspace(0,4,5),
     "x":sim_result.sim_data.get_intensity("freq_monitorFieldOut").x.values[:957],
     "f":sim_result.sim_data.get_intensity("freq_monitorFieldOut").f.values,
-},rf"F:\2D SHU Chi Statistics\data\10_07_2024 Beam Spreading Broad Bandwidth Periodic Conditions Freq Domain\intensities_exit.h5")
+},rf"H:\phd stuff\tidy3d\Notebooks\2D SHU Project\20251010_frequency_analysis\data\20251212_intensities_exit.h5")

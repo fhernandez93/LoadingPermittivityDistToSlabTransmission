@@ -29,10 +29,12 @@ class loadFromFile:
                     self.list_id+=[line.strip()] 
 
             self.structure_name = Path(file_path).stem
-
-            store_path =  fr"H:\phd stuff\tidy3d/output/{file_path[file_path.find("data"):]}/Data" if save_path=="" else save_path + rf"/{file_path[file_path.find("data"):]}/Data"
+            if save_path=="":
+                store_path =  fr"H:\phd stuff\tidy3d/output/{file_path[file_path.find("data"):]}/Data"
+            else:
+                store_path =  save_path + rf"/{file_path[file_path.find("2D SHU Project")+len("2D SHU Project")+1:]}/Data"
             self.only_download = only_download
-
+            # raise Exception({store_path})
             if only_download:
                 if Path(store_path+".hdf5").is_file():
                     print("File already exists!")
@@ -46,10 +48,9 @@ class loadFromFile:
                     web.download(self.list_id[1],path=store_path+".hdf5", verbose=verbose)
                 return None
             
-        else: 
-            store_path =  save_path + rf"/{file_path[file_path.find("data"):]}/Data"
+            
 
-        
+
         if  Path(store_path+".hdf5").is_file():
             if get_ref:
                 try:
