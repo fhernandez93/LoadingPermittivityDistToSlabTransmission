@@ -173,13 +173,13 @@ class loadAndRunStructure:
     
     def createSimObjects(self):
         #Defining Source
-
-        if self.source in ["planewave", "tight"]:
-            self.source_def = td.PlaneWave(
-                source_time = td.GaussianPulse(
+        self.gaussian_pulse = td.GaussianPulse(
                     freq0=self.freq0,
                     fwidth=self.freqw
-                ),
+                )
+        if self.source in ["planewave", "tight"]:
+            self.source_def = td.PlaneWave(
+                source_time = self.gaussian_pulse,
                 size= (0 if self.direction == "x" else td.inf, 
                       0 if self.direction == "y" else td.inf, 
                       0 if self.direction == "z" else td.inf
@@ -216,10 +216,10 @@ class loadAndRunStructure:
             
         if self.source == "gaussian":
                 self.source_def = td.GaussianBeam(
-                source_time = td.GaussianPulse(
-                    freq0=self.freq0,
-                    fwidth=self.freqw
-                ),
+                    source_time = td.GaussianPulse(
+                        freq0=self.freq0,
+                        fwidth=self.freqw
+                    ),
                 size= (0 if self.direction == "x" else self.gaussian_params.get("size", td.inf), 
                       0 if self.direction == "y" else self.gaussian_params.get("size", td.inf), 
                       0 if self.direction == "z" else self.gaussian_params.get("size", td.inf)
@@ -428,9 +428,9 @@ class loadAndRunStructure:
                     geometry=td.Box(
                         center=(0,  0 ,0),
                         size=(
-                              x_size if self.direction == "x"  else td.inf, 
-                              y_size if self.direction == "y"  else td.inf, 
-                              z_size if self.direction == "z"  else td.inf
+                                x_size if self.direction == "x" else (td.inf if self.boundaries=="periodic" else self.t_slab_x), 
+                                y_size if self.direction == "y" else (td.inf if self.boundaries=="periodic" else self.t_slab_y), 
+                                z_size if self.direction == "z" else (td.inf if self.boundaries=="periodic" else self.t_slab_z), 
                               ),
                     ),
                     medium=dielectric,

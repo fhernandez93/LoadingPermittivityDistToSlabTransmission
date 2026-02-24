@@ -12,6 +12,51 @@ from scipy.fft import fftn, ifftn, fftshift
 from scipy.interpolate import interp1d
 from scipy.signal import argrelextrema
 
+
+
+def get_sphere(n):
+    """get_sphere(n) discretized a sphere using a Fibonacci lattice with midpoint intertion (and poles added by hand)
+       input parameters:
+       n (int) number of points in the discretization (including poles)
+       returns:       
+       sphere <class 'scipy.spatial._qhull.ConvexHull'> with points and triangulation according to convex hull
+              (check https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.ConvexHull.html)
+       phi (numpy array, len=n) array with phi angles 
+       theta (numpy array, len=n) array with theta angles        
+       
+       more info in "Measurement of Areas on a Sphere Using Fibonacci and Latitude–Longitude Lattices" by
+        Alvaro Gonzalez, Math Geosci (2010) 42: 49–64, DOI 10.1007/s11004-009-9257-x. 
+        Check also https://extremelearning.com.au/how-to-evenly-distribute-points-on-a-sphere-more-effectively-than-the-canonical-fibonacci-lattice/
+    """
+    import numpy as np
+    import scipy.spatial as sp
+    #Golden ratio
+    gr=(1.+np.sqrt(5.))/2.
+    #ng=number of points by Fibonacci lattice with midpoint insertion
+    ng=n-2
+    i=np.arange(ng,dtype=int)
+    phi=np.zeros(n)
+    theta=np.zeros(n)
+    phi[1:ng+1]=2*np.pi*i/gr
+    theta[1:ng+1]=np.arccos(1.-2*(i+0.5)/ng)
+    #adding poles by hand
+    phi[0]=0.
+    theta[0]=0.
+    phi[n-1]=0.
+    theta[n-1]=np.pi
+    #getting Cartesian coordinates
+    points=np.zeros((n,3))    
+    sin_arr=np.sin(theta)
+    points[:,0]=np.cos(phi)*sin_arr
+    points[:,1]=np.sin(phi)*sin_arr
+    points[:,2]=np.cos(theta)
+    #getting convex hull
+    sphere=sp.ConvexHull(points)
+    
+    
+    return sphere,phi,theta
+
+
 def moving_average(x, w=3):
     if w==0:
         return x
