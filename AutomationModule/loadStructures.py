@@ -210,7 +210,7 @@ class loadAndRunStructure:
                         ,
                 direction='+',
                 pol_angle=self.pol_angle,
-
+                # angular_spec=td.FixedAngleSpec(),
                 name='planewave',
                 )
             
@@ -302,6 +302,24 @@ class loadAndRunStructure:
             )
 
             self.monitors_names += [self.monitor_1,self.monitor_2]
+
+        if "diffraction" in self.monitors:
+            self.monitor_diffraction = td.DiffractionMonitor(
+                center = (
+                            0 if self.flux_monitor_position else ((self.Lx - self.spacing)*0.5 if self.direction == "x" else 0), 
+                            0 if self.flux_monitor_position else ((self.Ly - self.spacing)*0.5 if self.direction == "y" else 0), 
+                            self.flux_monitor_position if self.flux_monitor_position else ((self.Lz - self.spacing)*0.5 if self.direction == "z" else 0)
+                            ),
+                size = (
+                    0 if self.direction == "x" else td.inf, 
+                    0 if self.direction == "y" else td.inf, 
+                    0 if self.direction == "z" else td.inf, 
+                    ),
+                freqs = self.monitor_freqs,
+                name='diffraction' #To the right 
+            )
+            
+            self.monitors_names += [self.monitor_diffraction]
 
         if "flux_reflection" in self.monitors:
             

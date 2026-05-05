@@ -14,53 +14,180 @@ from scipy.signal import argrelextrema
 
 
 
-def get_sphere(n):
-    """get_sphere(n) discretized a sphere using a Fibonacci lattice with midpoint intertion (and poles added by hand)
-       input parameters:
-       n (int) number of points in the discretization (including poles)
-       returns:       
-       sphere <class 'scipy.spatial._qhull.ConvexHull'> with points and triangulation according to convex hull
-              (check https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.ConvexHull.html)
-       phi (numpy array, len=n) array with phi angles 
-       theta (numpy array, len=n) array with theta angles        
+# def get_sphere(n):
+#     """get_sphere(n) discretized a sphere using a Fibonacci lattice with midpoint intertion (and poles added by hand)
+#        input parameters:
+#        n (int) number of points in the discretization (including poles)
+#        returns:       
+#        sphere <class 'scipy.spatial._qhull.ConvexHull'> with points and triangulation according to convex hull
+#               (check https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.ConvexHull.html)
+#        phi (numpy array, len=n) array with phi angles 
+#        theta (numpy array, len=n) array with theta angles        
        
-       more info in "Measurement of Areas on a Sphere Using Fibonacci and Latitude–Longitude Lattices" by
-        Alvaro Gonzalez, Math Geosci (2010) 42: 49–64, DOI 10.1007/s11004-009-9257-x. 
-        Check also https://extremelearning.com.au/how-to-evenly-distribute-points-on-a-sphere-more-effectively-than-the-canonical-fibonacci-lattice/
+#        more info in "Measurement of Areas on a Sphere Using Fibonacci and Latitude–Longitude Lattices" by
+#         Alvaro Gonzalez, Math Geosci (2010) 42: 49–64, DOI 10.1007/s11004-009-9257-x. 
+#         Check also https://extremelearning.com.au/how-to-evenly-distribute-points-on-a-sphere-more-effectively-than-the-canonical-fibonacci-lattice/
+#     """
+#     import numpy as np
+#     import scipy.spatial as sp
+#     #Golden ratio
+#     gr=(1.+np.sqrt(5.))/2.
+#     #ng=number of points by Fibonacci lattice with midpoint insertion
+#     ng=n-2
+#     i=np.arange(ng,dtype=int)
+#     phi=np.zeros(n)
+#     theta=np.zeros(n)
+#     phi[1:ng+1]=2*np.pi*i/gr
+#     theta[1:ng+1]=np.arccos(1.-2*(i+0.5)/ng)
+#     #adding poles by hand
+#     phi[0]=0.
+#     theta[0]=0.
+#     phi[n-1]=0.
+#     theta[n-1]=np.pi
+#     #getting Cartesian coordinates
+#     points=np.zeros((n,3))    
+#     sin_arr=np.sin(theta)
+#     points[:,0]=np.cos(phi)*sin_arr
+#     points[:,1]=np.sin(phi)*sin_arr
+#     points[:,2]=np.cos(theta)
+#     #getting convex hull
+#     sphere=sp.ConvexHull(points)
+    
+    
+#     return sphere,phi,theta
+
+def get_sphere(
+    n,
+    phi_range=(0.0, None),      # replaced inside after importing numpy
+    theta_range=(0.0, None),          # replaced inside after importing numpy
+    degrees=False
+    ):
     """
+    Discretize a full sphere or spherical angular patch using a Fibonacci lattice.
+
+    Parameters
+    ----------
+    n : int
+        Number of points in the discretization.
+    phi_range : tuple(float, float)
+        Azimuthal angle range (phi_min, phi_max).
+        Default is (0, 2*pi).
+    theta_range : tuple(float, float)
+        Polar angle range (theta_min, theta_max).
+        theta=0 is the north pole, theta=pi is the south pole.
+        Default is (0, pi).
+    degrees : bool
+        If True, input angle ranges are interpreted as degrees.
+
+    Returns
+    -------
+    sphere : scipy.spatial.ConvexHull
+        Convex hull computed from the generated Cartesian points.
+    phi : numpy.ndarray
+        Phi angles of the generated points.
+    theta : numpy.ndarray
+        Theta angles of the generated points.
+    """
+
     import numpy as np
     import scipy.spatial as sp
-    #Golden ratio
-    gr=(1.+np.sqrt(5.))/2.
-    #ng=number of points by Fibonacci lattice with midpoint insertion
-    ng=n-2
-    i=np.arange(ng,dtype=int)
-    phi=np.zeros(n)
-    theta=np.zeros(n)
-    phi[1:ng+1]=2*np.pi*i/gr
-    theta[1:ng+1]=np.arccos(1.-2*(i+0.5)/ng)
-    #adding poles by hand
-    phi[0]=0.
-    theta[0]=0.
-    phi[n-1]=0.
-    theta[n-1]=np.pi
-    #getting Cartesian coordinates
-    points=np.zeros((n,3))    
-    sin_arr=np.sin(theta)
-    points[:,0]=np.cos(phi)*sin_arr
-    points[:,1]=np.sin(phi)*sin_arr
-    points[:,2]=np.cos(theta)
-    #getting convex hull
-    sphere=sp.ConvexHull(points)
-    
-    
-    return sphere,phi,theta
+
+    if phi_range[1] is None:
+        phi_range = (phi_range[0], 2.0 * np.pi)
+
+    if theta_range[1] is None:
+        theta_range = (theta_range[0], np.pi)
+
+    phi_min, phi_max = phi_range
+    theta_min, theta_max = theta_range
+
+    if degrees:
+        phi_min, phi_max = np.deg2rad([phi_min, phi_max])
+        theta_min, theta_max = np.deg2rad([theta_min, theta_max])
+
+    if n < 4:
+        raise ValueError("n must be at least 4 to compute a 3D ConvexHull.")
+
+    if phi_max <= phi_min:
+        raise ValueError("phi_range must satisfy phi_max > phi_min.")
+
+    if theta_max <= theta_min:
+        raise ValueError("theta_range must satisfy theta_max > theta_min.")
+
+    if theta_min < 0 or theta_max > np.pi:
+        raise ValueError("theta_range must lie inside [0, pi].")
+
+    # Golden ratio
+    gr = (1.0 + np.sqrt(5.0)) / 2.0
+
+    phi_width = phi_max - phi_min
+
+    # Special case: original full-sphere behavior with poles added by hand
+    full_phi = np.isclose(phi_width, 2.0 * np.pi)
+    full_theta = np.isclose(theta_min, 0.0) and np.isclose(theta_max, np.pi)
+
+    phi = np.zeros(n)
+    theta = np.zeros(n)
+
+    if full_phi and full_theta:
+        # Original behavior
+        ng = n - 2
+        i = np.arange(ng, dtype=int)
+
+        phi[1:ng + 1] = 2.0 * np.pi * i / gr
+        theta[1:ng + 1] = np.arccos(1.0 - 2.0 * (i + 0.5) / ng)
+
+        phi[0] = 0.0
+        theta[0] = 0.0
+
+        phi[n - 1] = 0.0
+        theta[n - 1] = np.pi
+
+    else:
+        # Fibonacci-like sampling inside the requested angular window.
+        # Uniformity on the sphere requires uniform sampling in cos(theta),
+        # not directly in theta.
+        i = np.arange(n, dtype=int)
+
+        phi = phi_min + np.mod(2.0 * np.pi * i / gr, phi_width)
+
+        z_min = np.cos(theta_max)
+        z_max = np.cos(theta_min)
+        z = z_max - (z_max - z_min) * (i + 0.5) / n
+
+        theta = np.arccos(z)
+
+    # Cartesian coordinates
+    points = np.zeros((n, 3))
+    sin_arr = np.sin(theta)
+
+    points[:, 0] = np.cos(phi) * sin_arr
+    points[:, 1] = np.sin(phi) * sin_arr
+    points[:, 2] = np.cos(theta)
+
+    # Convex hull
+    sphere = sp.ConvexHull(points)
+
+    return sphere, phi, theta
 
 
 def moving_average(x, w=3):
-    if w==0:
+    if w == 0:
         return x
-    return np.convolve(x, np.ones(w), 'valid') / w
+    return np.convolve(x, np.ones(w), 'same') / w  # 'same' preserves length
+
+def moving_average_with_sem(data, window):
+    """Compute moving average and standard error of the mean"""
+    if window <= 1:
+        return data, np.zeros_like(data)
+    
+    mean = moving_average(data, window)  # now same length as data
+    rolling_std = np.array([np.std(data[max(0, i-window//2):min(len(data), i+window//2+1)]) 
+                            for i in range(len(data))])
+    sem = rolling_std / np.sqrt(window)
+    return mean, sem
+
+
 
 def _write_dict_to_hdf5(data, hdf_group):
     for key, value in data.items():
@@ -71,6 +198,9 @@ def _write_dict_to_hdf5(data, hdf_group):
             _write_dict_to_hdf5(value, subgroup)
         else:
             # If the value is not a dictionary, store it as a dataset
+            value = np.asarray(value)
+            if value.dtype.kind == 'U':
+                value = value.astype(h5py.string_dtype())
             hdf_group.create_dataset(key, data=value)
 def create_hdf5_from_dict(data, filename):
     """ Data must have a structure like this, and all items are arrays 
