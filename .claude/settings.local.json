@@ -4,7 +4,9 @@
       "Bash(python -c ' *)",
       "Bash(python -c \"import json; nb = json.load\\(open\\(r'h:\\\\phd stuff\\\\tidy3d\\\\Notebooks\\\\Gyromorphs\\\\20260519 gyromorphs Aaron\\\\20250408 Transmission Experiment Network.ipynb'\\)\\); print\\('cells:', len\\(nb['cells']\\)\\); print\\('nbformat:', nb['nbformat']\\)\")",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(xargs grep -l \"dtype.*complex\\\\|complex64\\\\|complex128\")",
+      "Bash(python -c \"import tidy3d as td; print\\(td.__file__\\); help\\(td.FieldData\\)\")"
     ]
   }
 }

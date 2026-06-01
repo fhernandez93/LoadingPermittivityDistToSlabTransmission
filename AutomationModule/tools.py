@@ -201,7 +201,7 @@ def _write_dict_to_hdf5(data, hdf_group):
             value = np.asarray(value)
             if value.dtype.kind == 'U':
                 value = value.astype(h5py.string_dtype())
-            hdf_group.create_dataset(key, data=value)
+            hdf_group.create_dataset(key, data=value,compression="gzip", compression_opts=4, chunks=True)
 def create_hdf5_from_dict(data, filename):
     """ Data must have a structure like this, and all items are arrays 
      data = {
