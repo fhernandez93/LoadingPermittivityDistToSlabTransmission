@@ -189,20 +189,23 @@ def moving_average_with_sem(data, window):
 
 
 
-def _write_dict_to_hdf5(data, hdf_group):
+def _write_dict_to_hdf5(data, hdf_group, compression=False):
     for key, value in data.items():
         key = str(key)
         if isinstance(value, dict):
             # If the value is a nested dictionary, create a group and call recursively
             subgroup = hdf_group.create_group(key)
-            _write_dict_to_hdf5(value, subgroup)
+            _write_dict_to_hdf5(value, subgroup, compression=compression)
         else:
             # If the value is not a dictionary, store it as a dataset
             value = np.asarray(value)
             if value.dtype.kind == 'U':
                 value = value.astype(h5py.string_dtype())
-            hdf_group.create_dataset(key, data=value,compression="gzip", compression_opts=4, chunks=True)
-def create_hdf5_from_dict(data, filename):
+            if compression:
+                hdf_group.create_dataset(key, data=value,compression="gzip", compression_opts=4, chunks=True)
+            else:
+                hdf_group.create_dataset(key, data=value)
+def create_hdf5_from_dict(data, filename,compression:bool=False):
     """ Data must have a structure like this, and all items are arrays 
      data = {
                         'transmission_right':transmission_flux_right,
@@ -215,7 +218,7 @@ def create_hdf5_from_dict(data, filename):
     """
     with h5py.File(filename, 'w') as hdf_file:
         # Recursively traverse the dictionary and write data to the HDF5 file
-        _write_dict_to_hdf5(data, hdf_file)
+        _write_dict_to_hdf5(data, hdf_file, compression=compression)
 
 
 
@@ -408,5 +411,9 @@ def unwrap_h5(obj):
 
     
 def read_hdf5_as_dict(filename):
-    with h5py.File(filename, 'r') as hdf_file:
-        return unwrap_h5(hdf_file)
+    try:
+        with h5py.File(filename, 'r') as hdf_file:
+            return unwrap_h5(hdf_file)
+    except Exception as e:
+        print(f"Error reading HDF5 file: {e}")
+        return {}
