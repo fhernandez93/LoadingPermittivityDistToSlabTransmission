@@ -316,7 +316,7 @@ class loadAndRunStructure:
                     0 if self.direction == "z" else td.inf, 
                     ),
                 freqs = self.monitor_freqs,
-                name='diffraction' #To the right 
+                name='diffraction'
             )
             
             self.monitors_names += [self.monitor_diffraction]
