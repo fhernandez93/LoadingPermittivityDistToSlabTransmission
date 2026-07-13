@@ -11,7 +11,7 @@ class loadFromFile:
     """
     Load results from txt or hdf5 data files
     """
-    def __init__(self, key:str="", file_path:str = "",only_download:bool=False, save_path:str="", get_ref:bool=True, verbose:bool=True,configured:bool=True):
+    def __init__(self, key:str="", file_path:str = "",only_download:bool=False, save_path:str="", get_ref:bool=True, verbose:bool=True,configured:bool=True,from_hdf5:bool=False):
         if not key:
             raise Exception("No API key was provided")
         elif configured:
@@ -24,6 +24,14 @@ class loadFromFile:
 
 
         if (Path(file_path).suffix==".txt"):
+            if from_hdf5:
+                if get_ref:
+                    try:
+                        self.sim_data0 =  td.SimulationData.from_hdf5(file_path+"/Data_0.hdf5")
+                    except:
+                        print("No Reference Simulation was loaded")
+                self.sim_data =  td.SimulationData.from_hdf5(file_path+"/Data.hdf5")
+                return None
             with open(file_path, 'r') as file:
                 for line in file:
                     self.list_id+=[line.strip()] 
