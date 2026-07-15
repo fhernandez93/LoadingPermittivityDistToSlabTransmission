@@ -4,7 +4,13 @@
       "Bash(python -c ' *)",
       "Bash(git add *)",
       "Bash(git commit -m '@ *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(python -c \"import h5py; f=h5py.File\\('data/cavity_data/0mm_Gap_Cavity_3D_field_intensities.h5','r'\\); f.visit\\(print\\)\")",
+      "Bash(python -c \"import json,sys; nb=json.load\\(open\\('20260714 Analysis Focusing Cavity.ipynb',encoding='utf-8'\\)\\); print\\('num cells', len\\(nb['cells']\\)\\)\")",
+      "Bash(python -c \"import h5py; f=h5py.File\\('0mm_Gap_Cavity_3D_field_intensities.h5','r'\\); f.visit\\(print\\)\")",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(python -c \"import AutomationModule as AM; print\\(AM.__file__\\)\")",
+      "PowerShell($p = \"H:\\\\Codes\\\\tidy3d\\\\Notebooks\\\\2D SHU Project\\\\20250505 2D SHU Experimental Antennas\\\\20250708_Numerical_Experiment_3D_Cavity\\\\20250708 Numerical Experiment Cavity 3D.ipynb\"; $nb = Get-Content $p -Raw | ConvertFrom-Json; $i=0; foreach\\($c in $nb.cells\\){ if\\($c.cell_type -eq \"code\"\\){ $s = \\($c.source -join \"\"\\); if\\($s -match \"PointDipole|Dipole|center|source|monitor|emmiter|emitter|position|FieldMonitor|freq_monitor|size=\"\\){ Write-Output \"==== CELL $i ====\"; Write-Output $s } }; $i++ })"
     ]
   }
 }
