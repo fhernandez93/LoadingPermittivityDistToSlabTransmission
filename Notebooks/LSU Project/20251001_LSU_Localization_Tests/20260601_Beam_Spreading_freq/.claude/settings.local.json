@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python -c \"import numpy, h5py, scipy, matplotlib; print\\('numpy', numpy.__version__\\); print\\('h5py', h5py.__version__\\); print\\('scipy', scipy.__version__\\)\")",
+      "PowerShell(New-Item *)",
+      "PowerShell(python \"C:\\\\Users\\\\HernandF\\\\.claude\\\\jobs\\\\5fcc8f62\\\\tmp\\\\dump_nb.py\" \"20251001_numerical_experiment.ipynb\" \"20251007_Retireve_Field_Data.ipynb\")",
+      "Bash(python -c \"import tidy3d; print\\(tidy3d.__file__\\); print\\(tidy3d.__version__\\)\")",
+      "Bash(pip show *)",
+      "Bash(where python *)",
+      "Bash(where pip *)",
+      "Bash(python *)",
+      "Read(//c/Users/HernandF/AppData/Local/miniconda3/**)",
+      "Read(//c/Users/HernandF/anaconda3/**)",
+      "Read(//c/Users/HernandF/AppData/Local/anaconda3/**)",
+      "Read(//c/ProgramData/anaconda3/envs/**)",
+      "Read(//c/ProgramData/miniconda3/**)",
+      "Bash(\"C:/ProgramData/anaconda3/python.exe\" -c \"import tidy3d; print\\(tidy3d.__file__\\); print\\(tidy3d.__version__\\)\")",
+      "Bash(\"C:/Users/HernandF/AppData/Local/Programs/Python/Python312/python.exe\" -c \"import tidy3d; print\\(tidy3d.__file__\\); print\\(tidy3d.__version__\\)\")",
+      "WebFetch(domain:www.pnas.org)",
+      "WebFetch(domain:idp.nature.com)",
+      "WebFetch(domain:www.ncbi.nlm.nih.gov)"
+    ]
+  }
+}

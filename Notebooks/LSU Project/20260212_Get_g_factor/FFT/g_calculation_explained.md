@@ -4,8 +4,8 @@ This note walks through the calculation of the scattering anisotropy factor
 `g = ⟨cos θ⟩` performed inside `old_rdg_spectrum` in
 [20250903_create_h5_from_ends.ipynb](20250903_create_h5_from_ends.ipynb).
 The function operates in the **Rayleigh–Gans–Debye (RDG)** single-scattering
-regime, where the differential scattering cross-section is driven entirely by
-the structure factor `S(q)` of the permittivity contrast.
+regime [1, 2], where the differential scattering cross-section is driven
+entirely by the structure factor `S(q)` of the permittivity contrast [3].
 
 ## Physical model
 
@@ -28,8 +28,8 @@ $$
 $$
 
 where `S(q)` is the (rotationally averaged) power spectrum of the permittivity
-contrast `Δε(r) = ε(r) − ε_bg`. The asymmetry parameter is then the
-intensity-weighted average of the cosine of the scattering angle:
+contrast `Δε(r) = ε(r) − ε_bg` [3]. The asymmetry parameter is then the
+intensity-weighted average of the cosine of the scattering angle [4, 5]:
 
 $$
 g \;=\; \langle\cos\theta\rangle
@@ -58,7 +58,9 @@ P3d = np.abs(F3d) ** 2
 ```
 This is the squared modulus of the Fourier transform of `Δε(r)`. By the
 Wiener–Khinchin theorem this is proportional to the structure factor of the
-contrast.
+contrast — i.e. the Fourier transform of the two-point correlation function
+`⟨Δε(r) Δε(r + R)⟩`, which is the Debye–Bueche picture of scattering from a
+randomly inhomogeneous medium [3].
 
 ### 3. Radially average `|F(q)|²` to get `S(q)`
 The reciprocal-space grid is built from `np.fft.fftfreq` (multiplied by `2π`
@@ -109,7 +111,8 @@ $$
 using the trapezoidal rule on the 500-point θ grid. The `2π` factors come from
 the trivial φ-integration of an azimuthally symmetric integrand and cancel in
 the ratio, but they are left in to keep `sigma` itself physically meaningful
-(it is reused for `l_s = 1 / (ρ σ)` and `l* = l_s / (1 − g)`).
+(it is reused for the scattering mean free path `l_s = 1 / (ρ σ)` and the
+transport mean free path `l* = l_s / (1 − g)` [4, 5]).
 
 If `sigma` is non-positive (numerical edge case, e.g. zero contrast), the code
 falls back to `g = NaN`, `l_s = l* = ∞`.
@@ -135,3 +138,24 @@ contrast, integrated over θ ∈ [0, π] with the trapezoidal rule.
   and `qmax`, and `S_interp` linearly extrapolates to `0` beyond the last
   bin (`fill_value=(S_plot[0], 0.0)`). For wavelengths so short that
   `2k > qmax`, the high-θ portion of `dσ/dΩ` is silently zeroed.
+
+## References
+
+1. C. F. Bohren and D. R. Huffman, *Absorption and Scattering of Light by
+   Small Particles* (Wiley, New York, 1983), Ch. 6 — the Rayleigh–Gans
+   approximation, the `½(1 + cos²θ)` dipole factor for unpolarised light, and
+   differential scattering cross-sections.
+2. H. C. van de Hulst, *Light Scattering by Small Particles* (Wiley, 1957;
+   Dover reprint, 1981), Ch. 7 — the Rayleigh–Gans regime and its validity
+   limits (`|m − 1| ≪ 1` and small phase shift `k d |m − 1| ≲ 1`).
+3. P. Debye and A. M. Bueche, "Scattering by an Inhomogeneous Solid,"
+   *J. Appl. Phys.* **20**, 518–525 (1949), doi:10.1063/1.1698419 — scattering
+   from a random medium set by the Fourier transform of the correlation
+   function of the fluctuations (the structure factor `S(q)`).
+4. A. Ishimaru, *Wave Propagation and Scattering in Random Media* (Academic
+   Press, New York, 1978) — the asymmetry/anisotropy parameter
+   `g = ⟨cos θ⟩` and the transport mean free path in radiative-transfer theory.
+5. E. Akkermans and G. Montambaux, *Mesoscopic Physics of Electrons and
+   Photons* (Cambridge University Press, 2007) — scattering vs. transport mean
+   free paths, `l* = l_s / (1 − g)`, and their role in the diffusion and
+   localization of waves in disordered media.

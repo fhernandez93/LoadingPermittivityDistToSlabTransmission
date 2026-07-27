@@ -24,3 +24,5 @@ Notebooks/LSU Project/20250410 Sphere Discretization LSU/data/20260312_g_values_
 *.vtk
 *.sh
 *.bak
+audit_workspace/
+*.npz
