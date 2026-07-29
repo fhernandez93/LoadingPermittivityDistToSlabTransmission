@@ -18,7 +18,8 @@
       "Bash(\"C:/Users/HernandF/AppData/Local/Programs/Python/Python312/python.exe\" -c \"import tidy3d; print\\(tidy3d.__file__\\); print\\(tidy3d.__version__\\)\")",
       "WebFetch(domain:www.pnas.org)",
       "WebFetch(domain:idp.nature.com)",
-      "WebFetch(domain:www.ncbi.nlm.nih.gov)"
+      "WebFetch(domain:www.ncbi.nlm.nih.gov)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }
