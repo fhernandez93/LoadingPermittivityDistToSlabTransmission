@@ -386,30 +386,45 @@ def get_a_from_h5_eps(file:str, L:float,plot_correlation:bool=True):
         return a,x_fine,y_fine
     
 
-def unwrap_h5(obj):
-    """Automatically convert HDF5 objects to appropriate Python types."""
-    if isinstance(obj, h5py.Dataset):
-        data = obj[()]
-        # If it's bytes, decode to string
-        if isinstance(data, (bytes, bytearray)):
-            return data.decode()
-        # If it's a scalar NumPy type, convert to native Python
-        if np.isscalar(data):
-            return data.item()
-        # If it's a numpy array of bytes (e.g. for string arrays)
-        if hasattr(data, "dtype") and data.dtype.kind in {"S", "O"}:
-            try:
-                return data.astype(str).tolist()
-            except Exception:
-                return data.tolist()
+def _unwrap_value(data):
+    """Convert a raw h5py value (dataset payload or attr value) to native Python."""
+    if isinstance(data, (bytes, bytearray)):
+        return data.decode()
+    if isinstance(data, str):
         return data
+    if isinstance(data, np.generic):
+        return data.item()
+    if hasattr(data, "dtype") and data.dtype.kind in {"S", "O"}:
+        try:
+            return data.astype(str).tolist()
+        except Exception:
+            return data.tolist()
+    return data
+
+
+def _unwrap_attrs(obj):
+    """Convert an HDF5 object's attributes dict to native Python types."""
+    return {key: _unwrap_value(val) for key, val in obj.attrs.items()}
+
+
+def unwrap_h5(obj):
+    """Automatically convert HDF5 objects to appropriate Python types, including attributes."""
+    if isinstance(obj, h5py.Dataset):
+        result = _unwrap_value(obj[()])
+        attrs = _unwrap_attrs(obj)
+        if attrs:
+            return {"data": result, "attrs": attrs}
+        return result
     elif isinstance(obj, h5py.Group):
-        # For groups, recursively parse contents
-        return {key: unwrap_h5(obj[key]) for key in obj.keys()}
+        result = {key: unwrap_h5(obj[key]) for key in obj.keys()}
+        attrs = _unwrap_attrs(obj)
+        if attrs:
+            result["attrs"] = attrs
+        return result
     else:
         return obj
 
-    
+
 def read_hdf5_as_dict(filename):
     try:
         with h5py.File(filename, 'r') as hdf_file:
