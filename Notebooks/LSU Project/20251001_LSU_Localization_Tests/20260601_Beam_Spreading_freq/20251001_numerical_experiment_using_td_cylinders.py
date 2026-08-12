@@ -55,10 +55,13 @@ def create_cylinder_from_ends(top_center, bottom_center, radius):
 
     return transformed
 
-
+#### Parameters for the simulation
 a=2.562629142772549
-lambdas =np.array([8,4])
-
+lambdas =a/np.array([0.47,0.53])
+n=2.4
+min_steps_per_lambda = 13
+runtime_ps = 70e-12
+###############################
 
 def spectral_sampling(T_ps, band_width=0.02, a=a, lambdas=lambdas, n_current=None):
     """Frequency sampling needed to IFFT-reconstruct an unaliased time window of T_ps picoseconds.
@@ -93,18 +96,20 @@ def spectral_sampling(T_ps, band_width=0.02, a=a, lambdas=lambdas, n_current=Non
 
 
 # T should cover the full run_time (40 ps), not just the 35 ps analysis window
-nfreqs = spectral_sampling(T_ps=40, band_width=0.01)
-
-n_eff=1
+nfreqs = spectral_sampling(T_ps=runtime_ps*1e12, band_width=0.01)
+ff  = 0.217                     # dielectric filling fraction
+e1, e2 = 1.0, n**2            # air, n=3.3
+b   = (3*(1-ff) - 1)*e1 + (3*ff - 1)*e2
+e_eff = (b + np.sqrt(b**2 + 8*e1*e2))/4
+# n_eff = np.sqrt(e_eff)
+n_eff=1.0        
 run = True
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 folder_path = SCRIPT_DIR.parent / "Structures"
 postprocess_results = []
-runtime_ps = 40e-12
-min_steps_per_lambda = 14
 t_slabx, t_slaby, t_slabz = 250, 250, 32
-project_name = f"20260805_Beam_Spreading_{t_slabx}_{t_slaby}_{t_slabz}"
+project_name = f"20260810_Beam_Spreading_{t_slabx}_{t_slaby}_{t_slabz}_index_{n:.2f}_freq"
 h5_bg = None
 
 for dirpath, dirnames, filenames in os.walk(folder_path):
@@ -128,7 +133,7 @@ for dirpath, dirnames, filenames in os.walk(folder_path):
                         if centers[cil][2] < -t_slabz/2-0.8 or centers[cil][2] > t_slabz/2+0.8:
                             continue
                         cyl_group.append(create_cylinder_from_ends(tops[cil], bottoms[cil], radius))
-                    medium=td.Medium(permittivity=3.3**2)
+                    medium=td.Medium(permittivity=n**2)
                     structure = td.Structure(geometry=td.GeometryGroup(geometries=cyl_group),  medium=medium)
                     Lx, Ly, Lz =t_slabx, t_slaby, 45
                     
@@ -163,13 +168,13 @@ for dirpath, dirnames, filenames in os.walk(folder_path):
                                     Ly,
                                     0
                                 ],
-                            interval_space = (4,4,4),
+                            interval_space = (3,3,3),
                             fields=["Ex", "Ey", "Ez"],
                             freqs=monitor_freqs,
                             name="monitorField_exit",
                         )
                     
-                    dl = (lambdas[1] /min_steps_per_lambda) / 3.3 #  grids per smallest wavelength in medium
+                    dl = (lambdas[1] /min_steps_per_lambda) / n #  grids per smallest wavelength in medium
                     boundaries= td.BoundarySpec(
                         x=td.Boundary(plus=td.Absorber(num_layers=200),minus=td.Absorber(num_layers=200)),
                         y=td.Boundary(plus=td.Absorber(num_layers=200),minus=td.Absorber(num_layers=200)),
@@ -182,7 +187,7 @@ for dirpath, dirnames, filenames in os.walk(folder_path):
                                 td.inf, 
                                 Lz/2-t_slabz/2
                               ),
-                        ),medium=td.Medium(permittivity=1))
+                        ),medium=td.Medium(permittivity=n_eff**2))
                     cube2 = td.Structure(geometry= td.Box(
                         center=(0,  0 , (Lz/2+t_slabz/2)/2),
                         size=(
@@ -190,7 +195,7 @@ for dirpath, dirnames, filenames in os.walk(folder_path):
                                 td.inf, 
                                 Lz/2-t_slabz/2
                               ),
-                        ),medium=td.Medium(permittivity=1))
+                        ),medium=td.Medium(permittivity=n_eff**2))
                     sim = td.Simulation(
                         center = (0, 0, 0),
                         size = (Lx, Ly, Lz),
@@ -209,7 +214,7 @@ for dirpath, dirnames, filenames in os.walk(folder_path):
                         )
                     print(f"Simulation {project_name} created with {len(cyl_group)} cylinders.")
                     if run:
-                        folder_desc = SCRIPT_DIR.parents[3] / "data" / project_name / f"n_{3.3:.2f}"
+                        folder_desc = SCRIPT_DIR.parents[3] / "data" / project_name / f"n_{n:.2f}"
                         os.makedirs(folder_desc, exist_ok=True)
                         sim_name=rf"LSU_{Path(filename).stem}_lambda_{lambdas[1]}_{lambdas[0]}"
                         if os.path.exists(os.path.join(folder_desc, sim_name+".txt")):
@@ -220,6 +225,8 @@ for dirpath, dirnames, filenames in os.walk(folder_path):
                             with open(os.path.join(folder_desc, sim_name+".txt"), "w") as file:
                                 # Write the string to the file
                                 file.write(ids)
+                            web.start(id)
+                            web.monitor(id)
                            
                     else: 
                         id =web.upload(sim, verbose=True,task_name="test") 

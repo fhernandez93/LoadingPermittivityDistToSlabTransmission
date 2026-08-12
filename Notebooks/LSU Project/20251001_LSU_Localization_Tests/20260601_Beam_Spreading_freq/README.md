@@ -2,8 +2,9 @@
 
 Steady-state (CW, frequency-domain) transverse beam-diameter analysis d(ν) at the exit
 face of a **fully random, aperiodic** LSU-generated healed cylinder network — the run that
-replaces the old 12×-tiled SHU experiment. Analysis notebook:
-**`20260806_Beam_Diameter_d_nu.ipynb`** (lean; all physics prose lives here).
+replaces the old 12×-tiled SHU experiment. Analysis notebooks:
+**`20260806_Beam_Diameter_d_nu.ipynb`** (CW d(ν)) and **`20260808_Beam_Spreading_time.ipynb`**
+(time-domain σ²(t), d(t) — §8; all physics prose lives here).
 Deep-dive working documents and the adversarial-verification scripts are under `Claude/`.
 
 **Headline (2026-08-07).** The photonic gap of this random structure sits at
@@ -52,7 +53,10 @@ that swings ~15× with estimator choice at the dip bins (see Claims table, C4).
 | `20251007_Retireve_Field_Data.ipynb` | downloaded the cloud result into `data/slab_250x250x32/…h5` |
 | `20260806_Beam_Diameter_d_nu.ipynb` | **the analysis** (this experiment): d(ν), S(ν), baseline, gap/dips, interactive beam map |
 | `bst_pipeline.py` | validated streaming/estimator primitives from the 2026-07 audit (docstrings = conventions; its `L_SLAB_UM=14.3` and tiling notes refer to the OLD 12× dataset) |
-| `20260602_IPR_Calculation_FFT.ipynb` | time-domain (FFT) analysis of the **old 12× data** — untouched, does not apply to this run |
+| `20260808_Beam_Spreading_time.ipynb` | **time-domain first look** (this run): σ²(t), d(t), P(t) + exit-face movies (§8). Replaces `20260602_IPR_Calculation_FFT.ipynb` (old 12× data; deleted 2026-08-08 — committed copy in git history, old-data backup in `backups_20260716/`) |
+| `movies/beam_spreading_nu*.gif` | §8 exit-face movies: ν = 0.350, 0.389, 0.437, 0.550 (log₁₀ I, fixed norm, 300 frames / 40 ps) |
+| `data/slab_250x250x32/…backdround_effective_n_1.34.h5` | **effective-medium cladding run** (project `20260810_…_effective_index_1.34_freq`, 2026-08-10): same slab, z = ±16…±22.5 µm filled with n_eff = 1.34 (Bruggeman, ff = 0.217), run_time 45 ps, 1688 freqs, 483² grid (`interval_space=(3,3,3)`). **Not a beam-spreading measurement — see §10** |
+| `Claude/audit_workspace/effective_cladding/` | 2026-08-11 air-vs-cladding investigation: streaming comparison (`compare_runs.py`), angular-spectrum flux reconstruction (`flux_correction.py`), air-cone filter (`flux_aircone.py`), result npz + summary scripts |
 | `data/L_1_12x/` | old 12×-tiled SHU data (n = 2.90) |
 | `Claude/STEADY_STATE_IPR_REPORT.md`, `Claude/METHODS.md`, `Claude/AUDIT_REPORT.md` | old-run deep dives (still the reference for estimator derivations) |
 | `Claude/audit_workspace/random_slab/` | this run's streaming pass, analysis scripts, claims file, and adversarial-verification scripts (`verify/`) |
@@ -234,13 +238,15 @@ the z₀ + speckle corridor width.
 | deep-gap floor | d meaningless where S ≲ −35 dB | — | masked, plotted separately |
 | source sidelobes (5×5 µm hard patch) | ≤ 1% on d at ν=0.33, ≤ 0.5% elsewhere, none at the flanks (C12: sidelobes evanescent) | — | verified null; broad injection NA remains an initial condition |
 | ℓ*/g scale (files at a′ = 0.8a) | ×1.25 on all ℓ values | one-sided | corrected in notebook (C11) |
-| exit-face monitor (interface waves, Goïcoechea 2026) | unquantified | — | needs an interior monitor (re-run) |
+| exit-face monitor (interface waves, Goïcoechea 2026) | ≤6% on d for the air run (flux cross-check, §10) | — | angular-spectrum S_z reconstruction agrees with \|E\|² widths; interior monitor still preferred for a re-run |
 
 ## 7. Claims table — adversarial verdicts (2026-08-07)
 
 Claims stated in `Claude/audit_workspace/random_slab/CLAIMS_FOR_VERIFICATION.md`;
 verification scripts in `…/random_slab/verify/`. Wave A = literature/primary-source
-verifiers; waves B = independent data refuters.
+verifiers; waves B = independent data refuters. Time-domain rows T1–T7 (2026-08-08):
+claims stated in §8, verification scripts in `…/random_slab_td/verify/` (three lenses:
+reconstruction-correctness, artifact (wrap/edge/floor), does-it-reproduce).
 
 | # | claim | verdict | note |
 |---|---|---|---|
@@ -256,6 +262,24 @@ verifiers; waves B = independent data refuters.
 | C10 | design claim: geometry captures ξ near the gap | **CONFIRMED as corrected** | geometry adequate: σ_loc = 8.0–8.8 a ≤ 0.18× aperture, aperiodic, no tiling cap. But single-L CW **cannot resolve ξ in the 5–9 a target**: σ²_loc(full Eq. 6) = 63.1/68.7/76.8 a² at ξ=5/6.25/9 — all above σ²_ME = 58.5 a² (indistinguishable from critical); Δd(ξ:5→9) = 2.1 a ≈ 2.7 speckle σ, swamped by systematics. Unambiguous CW dip needs ξ ≲ 3.2 a; resolvability lost for ξ ≳ 4.2 a. (Full Eq. 6 is strictly monotonic in ξ — the truncated 2Lξ(1−ξ/L) non-monotonicity in the claims file was an artifact.) The decisive test is time-domain σ²(t) saturation, for which the geometry now has full headroom |
 | C11 | kℓ* < 1 in [0.390, 0.431], min 0.85 | **REFUTED** | scale error: ls/g files live at a′ = 0.8a, so physical ℓ* = 1.25× file values ⇒ min kℓ* = 1.07 (vacuum k), 1.34–1.36 (n_eff k) — no sub-unity window; dips not at kℓ*=1 crossings; axis association itself verified correct (ℓs min in-gap, T(L) Beer-Lambert corr 0.88) |
 | C12 | source sidelobes contaminate low-ν wings | **REFUTED (null)** | sinc sidelobes are *evanescent* below ν≈0.51 (5 µm patch < λ); no k-space cross at any ν; exit light depolarized (33:32:34) and k-isotropic; coherent contamination of d ≤1% at ν=0.33, ≤0.5% above, zero flank leakage. Below-gap d≈33 a is transport with broad injection NA, not sidelobe diffraction |
+| T1 | causal FFT reconstruction correct (fft not ifft; Parseval; pre-arrival = window-kernel tail) | **PARTIALLY** | convention CONFIRMED: `fft` is causal (arrival 0.27–0.43 ps > earliest physical front 0.15–0.20 ps; `ifft` time-mirrors exactly, P_ifft[n]·N² = P_fft[N−n] to 5.6e−15); Parseval 1.8e−15 in float64 (3.5e−8 in the float32 pipeline) but is convention-blind. Sub-claim (c) REFUTED: pre-arrival signal is the wrap-around fold of the undecayed tail (P(0)/P(T−dt) = 0.80–1.13), *not* the window kernel — no acausality; kernel-scaling probe confirms (P(0) −29→−59→−61 dB as FWHM 0.01→0.02→0.04) |
+| T2 | fold-back negligible on trusted segments; boundary >−40 dB only for edge/in-gap windows | **PARTIALLY → sharpened** | dichotomy real but the >−40 dB list has NINE windows incl. 0.370 (−25.9 dB) and 0.450 (−32.4 dB). Conclusion survives via the *decay* argument: end tails still decay (τ ≈ 6–7 ps), so the folded copy is ≤0.3% of P on trusted segments; mid-band boundary −50…−60 dB, Δσ² ≤ 0.8 a² worst case |
+| T3 | mid-band σ² grows ~20→550 a² by ~11 ps, no flattening; growth ordering gap-adjacent < mid-band < below-gap | **REPRODUCES** | independent implementation (trapezoid, own FFT/blocking) matches to ≤0.4%; cutoff values within 1% across Gaussian/decimated variants; ordering never inverts (Tukey moves gap-adjacent σ²(5 ps) by 7–8%, groups separated ×2); "20 a² at arrival" is a Gaussian-window statement (box windows ring at t < 1 ps) |
+| T4 | 0.370/0.450 grow 2–3× slower and genuinely bend over (not edge clock, not floor admixture) | **CONFIRMED** | slopes [2–8 ps] 18.2/15.9 vs mid-band 31.8–50.7 a²/ps; 0.450 hard-flattens 297–305 a² over 25–31.8 ps, 0.370 bends but creeps 285→363 a² (18→31.4 ps); rim never crosses 1% (edge deficit at σ²=350 is 0.55%); the "floor" is the still-decaying tail itself (late-frame σ²/d ≈ 354/32 and 295/28 — NOT the deep-gap pattern), mixture correction a no-op; bend intact under P>10–30× floor cuts. **Guardrail: the 300–370 a² plateau is ~5× above the ξ=5–9 a localization target (63–77 a², §5) — do not sell it as the localization plateau.** 0.437-wing leakage into 0.450 (2–12% of P) pulls σ² *down* 1–5% (removing it raises the plateau) |
+| T5 | 0.437: persistently narrow, non-spreading profile (d ≈ 17–20 a, rim ≤0.1%), unlike 0.450 | **REPRODUCES; blending REFUTED** | plateau and 0.437-vs-0.450 contrast survive Tukey, 2× decimation, and a *halved* bandwidth — which makes the profile narrower and flatter (d med 18.2→14.1 a), the opposite of pass-band blending; σ²(5 ps) is the one window-sensitive number (74–86 a², 15%); rim 0.06–0.10% in all variants |
+| T6 | deep-gap windows measure the floor, not transport | **PARTIALLY** | 0.41 CONFIRMED (P max at frame 0, trusted range 0.29 ps; σ² ~108 a², d ~13 a = floor properties). 0.43 mechanism WRONG: it is a genuine long-lived gap-edge quasi-mode (P peaks at 5.3 ps, τ ≈ 11–12 ps, σ² 67→150 a², twin of 0.437); its 0.45 ps cutoff is a 0.3–1 ps rim *transient* tripping the first-crossing clock — "not a beam-transport measurement" stands for both |
+| T7 | narrow at arrival (d ≈ 9–12 a), σ² grows through the power peak | **PARTIALLY** | growth-through-peak CONFIRMED in all 12 pass-band windows (slope at t_pk +22…+53 a²/ps, rim ≤9e−4 there); arrival d = 8.80–12.24 a for 0.35–0.61; at 0.63 the 1e−3 gate misfires on the boundary floor (re-gated at 1e−2: d = 11.8 a at 0.45 ps — narrow arrival still true, protocol fails) |
+
+Effective-cladding rows E1–E4 (2026-08-11): claims about the n = 1.34-cladding run (§10),
+verified by direct computation (`Claude/audit_workspace/effective_cladding/`) plus a
+config/git audit and two adversarial physics passes.
+
+| # | claim | verdict | note |
+|---|---|---|---|
+| E1 | cladding-run σ²/d excess is an analysis bug or axis mismatch | **REFUTED** | notebook derives every axis-dependent quantity from the loaded h5 (git+cell audit); the only optical change between runs is cube1/cube2 permittivity 1 → n_eff² (plus 40→45 ps, (4,4,4)→(3,3,3)); the data itself differs: σ² ×2.5, d ×1.5–1.6, **frequency-flat** |
+| E2 | excess = \|E\|²-at-a-plane overweighting grazing light (1/cosθ); flux fixes it | **REFUTED as dominant** | angular-spectrum S_z reconstruction (validated: air flux ≈ air \|E\|² widths ≤6%, zero flux beyond k₀ in the air run as TIR demands) removes only ~8% (CW mid-band σ² 491→454 a²; air ≈197) |
+| E3 | excess flux is genuine wide-footprint transported power, delivered by cladding channels | **CONFIRMED** | 47% of transmitted flux at k∥ > k₀ (air-forbidden band; Lambertian matched-face prediction 1−1/n² = 44.4%); halo has the same angular mix as the core; air-cone filter (k∥ < k₀) still leaves σ² ≈ 470 a² — surface re-scattering relabels angles. Channels: full-cone main-lobe injection of the 5 µm patch radiating inside n = 1.34 (ν-flat — the sidelobe-threshold story would step at ν ≈ 0.38 and is excluded), matched-face reflectance recycling, interface skim/re-scatter; ~25% of exit power in the wide footprint |
+| E4 | cladding run salvageable by post-processing (angular filter / time gate / deconvolution) | **REFUTED** | angular filter dead (E3); time gate dead (cladding transit 87 a/ps ≫ diffusive spread, continuously replenished); deconvolution needs an absent front-face monitor and the contamination is coherent (Goïcoechea: not removable by subtraction). Only fix = re-run (§10) |
 
 **Corrections to carried-over context adopted this session** (wave A, primary sources):
 (i) CW localized width = full Cherroret Eq. 6; σ²=2Lξ(1−ξ/L) is the pulsed conjecture.
@@ -266,15 +290,139 @@ this session (R_eff=0.84) was wrong (convention mixing).
 (iv) The old n=2.90 g-file ν-descending convention does **not** apply to the new n=3.3 g
 file (ν ascending, co-stored).
 
-## 8. What would settle the open questions
+## 8. Time-domain first look (2026-08-08) — observe only, no fits
 
-1. **Time-domain σ²(t) on THIS data** (the h5 supports it: 40 ps window, 1500 bins) — the
-   absorption-immune test; saturation at 60–80 a² now measurable (no tiling cap).
+Notebook **`20260808_Beam_Spreading_time.ipynb`** (lean, 7 code cells). Narrow-band
+**causal** reconstruction from the same h5: Gaussian spectral windows of **FWHM 0.02 in ν**
+(σ_ν ≈ 8.5×10⁻³, pulse ≈ 0.16 ps) on the 0.02 grid over [0.33, 0.63] plus the two CW flank
+dips 0.389/0.437; E(t) = `scipy.fft.fft` over the ascending f axis (Parseval 3.5×10⁻⁸);
+per-frame estimators as in §2 (product-Simpson, σ² about the injection axis, PR d(t));
+one streaming pass, no movie materialized. **No D fits, no ξ, no localization claims.**
+
+**Validity rules** (printed by the notebook): curves are trusted only for
+t_arr < t < t_valid = min(t_floor, t_rim), where t_arr = first P > 10⁻³ P_pk,
+t_floor = P sinks into 3× the late-time floor, t_rim = rim power (ρ > 45 a) exceeds 2%.
+Ok-window median t_valid ≈ 12 ps (rim-limited mid-band); 0.370/0.450 run to ≈ 31 ps.
+**Wrap-around** (run_time ≈ T = 40 ps): boundary levels exceed −40 dB on nine windows, but
+the record end still *decays* (τ ≈ 6–7 ps) so the folded copy is ≤ 0.3% of P on trusted
+segments (T2); mid-band boundaries sit at −50…−60 dB. **Excluded/flagged:** deep-gap 0.41
+(floor: P peaks at frame 0) and 0.43 (long-lived gap-edge quasi-mode, not beam transport —
+T6); flanks 0.389/0.390 (rim > 2% at 0.5 ps; qualitative); spectrum-edge 0.33/0.63
+(clipped window ⇒ aliased end sidelobe, −22.7 dB predicted vs −22.5 dB measured at 0.33 —
+0.33 trusted only to ≈ 5 ps). The first-crossing rim clock is over-conservative for
+0.389/0.390/0.43, where a 0.3–1 ps rim transient hides an otherwise rim-clean quasi-mode
+segment. Movies (log₁₀ I/I_max, fixed norm, 10⁻⁶ floor, 300 frames / 40 ps):
+`movies/beam_spreading_nu0p350|0p389|0p437|0p550.gif`.
+
+### 8.1 t_valid in plain terms
+
+Each curve is a movie of a light pulse spreading sideways after crossing the slab;
+`t_valid` is the moment we stop believing the movie, for whichever of two reasons happens
+first:
+
+1. **The signal runs out.** The pulse dies away, and what remains on the detector is a
+   faint constant background hiss. Once the real signal comes within 3× of that hiss, the
+   "width" we compute is the width of the hiss, not of the beam.
+2. **The light runs off the edge.** The detector window is finite and the simulation edges
+   absorb light. As the spot spreads, its outskirts eventually fall off the edge; from then
+   on the spot *looks* like it stops growing — not because the physics stopped spreading
+   it, but because we lose the widest light. That would fake exactly the saturation we care
+   about, so we cut before it happens (when > 2% of the light sits near the edge, ρ > 45 a).
+
+Before `t_valid` the curve is drawn solid (starting at arrival, `t_arr`); after, faint.
+The two clocks bite differently across the band, and that is itself informative: mid-band
+light spreads fast and hits the *edge* problem first (~11–19 ps), while the gap-adjacent
+windows (0.370, 0.450) spread slowly, never reach the edge, and stay believable to ~31 ps
+until the *signal-runs-out* clock ends them — which is why they are the only curves where a
+flattening can be watched while the data is still trustworthy.
+
+**Observations (descriptive; verdicts in §7 rows T1–T7):**
+
+- Every pass-band window exits **narrow first**: d ≈ 9–12 a at arrival (0.27–0.43 ps), and
+  σ²(t) keeps growing straight **through** the transmitted-power peak (t_pk ≈ 2.0–2.8 ps),
+  slope +22…+53 a²/ps at the peak (T7).
+- **Mid-band (0.47–0.61):** σ² grows monotonically, near-linearly, to ≈ 540–565 a² and d to
+  ≈ 50 a at the rim cutoff (11–19 ps) — no flattening inside the trusted range. The edge
+  clock bites at σ² ≈ 500 a² (absorbing-box ceiling 624 a²), so growth is observed;
+  saturation is not observable there (T3).
+- **Growth rate orders by distance from the gap:** σ²(5 ps) ≈ 250–265 a² mid-band, vs 132
+  (0.370) and 118 a² (0.450) at the gap flanks — a factor 2–3 slower — and ≈ 450 a² below
+  the gap (0.33; spectrum-edge flags apply) (T3).
+- **The two gap-adjacent windows bend over inside their trusted ranges:** 0.450 flattens at
+  σ² ≈ 297–305 a² over 25–32 ps (robust to stricter power cuts, floor-mixture algebra, and
+  window/grid variants); 0.370 bends but still creeps, 285→363 a² over 18–31 ps. This
+  plateau sits **~5× above** the ξ = 5–9 a localized-saturation scale (63–77 a², §5) —
+  an observed flattening, not the sought localization plateau (T4).
+- **0.437 (upper flank):** persistently narrow, barely-spreading profile — d ≈ 14–20 a
+  (window-dependent), σ² ≈ 75–183 a² over 5–28 ps, rim ≤ 0.1%; *halving* the window
+  bandwidth makes it narrower and flatter, killing the window-blending hypothesis. Contrast
+  0.450, which keeps spreading to d ≈ 30 a (T5).
+- **P(t):** mid-band decays quasi-exponentially over 6–7 decades; decay slows toward the
+  gap (0.450/0.370 τ ≈ 6–7 ps; 0.437 τ ≈ 9 ps; 0.43 τ ≈ 11–12 ps; the 0.389/0.390 windows
+  retain ~10% of peak power at 40 ps).
+
+Verifier residuals: d(t) carries a few-percent quadrature/dtype sensitivity (up to 4.3% at
+0.437/0.450; σ² ≤ 1.2%) — pin quadrature and dtype before any future d(t) claim finer than
+~5%; σ²(5 ps) at 0.437 is window-sensitive (74–86 a²).
+
+## 9. What would settle the open questions
+
+1. **Time-domain σ²(t) on THIS data** — **done at first-look level (§8)**: growth observed
+   everywhere in the pass bands; no saturation below the aperture clock mid-band; the
+   gap-adjacent bend at ≈ 300–370 a² is ~5× above the ξ = 5–9 a target scale, so the
+   decisive localized-saturation signature remains unresolved at this aperture/geometry
+   (ensemble + thickness scaling still needed).
 2. **Thickness scaling** (≥ 2 more L values) — the decisive localization discriminator.
 3. **Ensemble realizations** — kills the +15% speckle systematic; enables mode statistics
    at the flank dips (the quasi-mode spots beg for a Thouless/mode-counting analysis).
 4. **Interior monitor / Gaussian-beam source** — removes the interface-wave and
-   source-realism residuals.
+   source-realism residuals. (The 2026-08-11 effective-cladding run, §10, is the measured
+   demonstration of what happens when neither is done and the faces are index-matched:
+   the exit-plane widths stop being beam widths entirely.)
+
+## 10. Effective-medium cladding run (2026-08-11) — why its σ²/d are NOT beam widths
+
+A second cloud run (`…backdround_effective_n_1.34.h5`, project 20260810) repeated the
+experiment with the z-regions outside the slab (±16…±22.5 µm, transversally infinite, up to
+the absorbers) filled with the Bruggeman effective medium n_eff = 1.34 (ff = 0.217) instead
+of vacuum — source (z = −19 µm) inside the entrance cladding, monitor unchanged at z = +16.
+Motivation: remove the internal-reflection (z₀) systematic. Result: **σ² ×2.5 (≈490 vs
+≈195 a² CW) and d ×1.5–1.6 (≈42 vs ≈27.5 a) as a frequency-flat multiplier** at all ν and
+all t; CW rim fraction 3.3% everywhere (vs 0.2%); the 2% rim clock trips at ~2.6 ps in
+every TD window (0.437 immediately); σ²(t) approaches the aperture ceiling (uniform-square
+max 2W²/3 = 1591 a²); the 0.437 quasi-mode narrowing is destroyed (d ≈ 21–30 a).
+
+**Sign test.** Diffusion theory predicts the matched run should be equal or ~15–25%
+*narrower* in d (z₀: ≈1.67ℓ* → 0.67ℓ*; σ²(t) ≈ 4Dt is face-reflectivity-independent).
+The observed opposite ⇒ the excess is not bulk transport.
+
+**Mechanism (settled by post-processing experiments, rows E1–E4).** The excess is
+*genuine Maxwell power, wrong experiment*: (i) the 5×5 µm hard patch radiating inside
+n = 1.34 launches propagating power over nearly the full hemisphere at every in-band ν
+(components evanescent in air become traveling waves) ⇒ the slab is illuminated over a much
+wider footprint; (ii) the slab's ~70% diffuse reflectance exits the matched entrance face
+instead of being TIR-recycled, skims laterally in the scattering-free cladding
+(87 a/ps vs diffusive √(4Dt) ≈ 6–14 a in the first ps) and is re-scattered into the slab
+off-axis by the rough face; (iii) the matched exit face releases the steep-angle 44% of the
+diffuse flux that air traps (measured: 47% of transmitted flux at k∥ > k₀, vs Lambertian
+prediction 1−1/n² = 44.4%). Surface re-scattering relabels angles, so neither the
+flux (S_z) correction (−8%) nor an air-cone (k∥ < k₀) filter (−2…−5%) recovers the air-run
+observable, and time-gating/deconvolution fail structurally (E4). ~25% of the exit power
+arrives in the wide footprint (σ²_eff ≈ (1−f)·180 + f·1300 a² ⇒ f ≈ 0.25).
+
+**Rules.** (1) Do not quote σ²/d from this run — not even filtered variants as bounds.
+(2) Any σ² ≳ 550 a² on the ±48.85 a aperture is aperture-saturated for smooth profiles
+(the Gaussian-halo 2%-rim threshold), independent of run. (3) The run retains value only
+as a negative control and as the measured matched-boundary angular census.
+
+**Fix (re-run prescription).** Apodized (Gaussian) source — or source embedded ≥ ℓ* inside
+the disorder — plus a monitor 1–2 ℓ* *inside* the exit face, or an exit monitor recording
+E **and** H so the observable is the flux S_z; apply identically to both boundary
+conditions. The angular-spectrum pipeline
+(`Claude/audit_workspace/effective_cladding/flux_correction.py`) drops onto such a run
+unchanged. **A by-product for the air run:** its flux-based widths agree with the |E|²
+widths to ≤6% — the exit-plane |E|² convention is hereby validated for the air data
+(bounds the Goïcoechea interface-wave residual in §6).
 
 ## References
 

@@ -19,7 +19,8 @@
       "WebFetch(domain:www.pnas.org)",
       "WebFetch(domain:idp.nature.com)",
       "WebFetch(domain:www.ncbi.nlm.nih.gov)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "PowerShell(Get-ChildItem -Recurse \"data\" -File | Sort-Object LastWriteTime | Format-Table LastWriteTime, @{n='GB';e={[math]::Round\\($_.Length/1GB,2\\)}}, FullName -AutoSize | Out-String -Width 300)"
     ]
   }
 }

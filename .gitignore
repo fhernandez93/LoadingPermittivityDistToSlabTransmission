@@ -27,3 +27,5 @@ Notebooks/LSU Project/20250410 Sphere Discretization LSU/data/20260312_g_values_
 audit_workspace/
 *.npz
 Structures_Marian/
+movies/
+random_slab_td/
