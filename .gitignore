@@ -28,4 +28,5 @@ audit_workspace/
 *.npz
 Structures_Marian/
 movies/
-random_slab_td/*_WITH_OUTPUTS_BACKUP.ipynb
+random_slab_td/
+*_WITH_OUTPUTS_BACKUP.ipynb
