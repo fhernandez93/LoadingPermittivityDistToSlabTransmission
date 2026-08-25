@@ -3,7 +3,8 @@
 Steady-state (CW, frequency-domain) transverse beam-diameter analysis d(ν) at the exit
 face of a **fully random, aperiodic** LSU-generated healed cylinder network — the run that
 replaces the old 12×-tiled SHU experiment. Analysis notebooks:
-**`20260806_Beam_Diameter_d_nu.ipynb`** (CW d(ν)) and **`20260808_Beam_Spreading_time.ipynb`**
+**`20260806_Beam_Diameter_d_nu.ipynb`** (CW σ²(ν), d(ν) — rewritten lean 2026-08-24, §11) and
+**`20260808_Beam_Spreading_time.ipynb`**
 (time-domain σ²(t), d(t) — §8; all physics prose lives here).
 Deep-dive working documents and the adversarial-verification scripts are under `Claude/`.
 
@@ -51,7 +52,7 @@ that swings ~15× with estimator choice at the dip bins (see Claims table, C4).
 |---|---|
 | `20251001_numerical_experiment_using_td_cylinders.py` | built + launched the cloud run (project `20260805_Beam_Spreading_250_250_32`) |
 | `20251007_Retireve_Field_Data.ipynb` | downloaded the cloud result into `data/slab_250x250x32/…h5` |
-| `20260806_Beam_Diameter_d_nu.ipynb` | **the analysis** (this experiment): d(ν), S(ν), baseline, gap/dips, interactive beam map |
+| `20260806_Beam_Diameter_d_nu.ipynb` | **the CW analysis** (this experiment). **Rewritten lean 2026-08-24 (§11):** 8 cells — σ²(ν) and d(ν) vs a fully-diffusive baseline built per-ν from the *measured* ℓs, g and ff (§11.1) and the *measured* T(ν), interactive beam map, (x, y, ν) speckle cloud. The S(ν)-envelope gap finder / validity mask / kℓ* / d_avg machinery is retired; pre-rewrite copy in `backups_20260824/` |
 | `bst_pipeline.py` | validated streaming/estimator primitives from the 2026-07 audit (docstrings = conventions; its `L_SLAB_UM=14.3` and tiling notes refer to the OLD 12× dataset) |
 | `20260808_Beam_Spreading_time.ipynb` | **time-domain first look** (this run): σ²(t), d(t), P(t) + exit-face movies (§8). Replaces `20260602_IPR_Calculation_FFT.ipynb` (old 12× data; deleted 2026-08-08 — committed copy in git history, old-data backup in `backups_20260716/`) |
 | `movies/beam_spreading_nu*.gif` | §8 exit-face movies: ν = 0.350, 0.389, 0.437, 0.550 (log₁₀ I, fixed norm, 300 frames / 40 ps) |
@@ -63,7 +64,7 @@ that swings ~15× with estimator choice at the dip bins (see Claims table, C4).
 | `backups_20260716/`, `Claude/audit_workspace/steady/…BACKUP…` | backups of the retired `20251008_IPR_Calculation.ipynb` (deleted 2026-08-07; also in git history) |
 
 Auxiliary inputs (both **outside** this folder):
-ℓs(ν): `../20251002_Ls_test/data/ls_values/20251031_ls_values_n_3p3.h5` (`"0.2237"`, 400 pts;
+ℓs(ν): `../data/ls_values/20251031_ls_values_n_3p3.h5` (`"0.2237"`, 400 pts;
 its ν axis is reconstructed as ν = 0.8·a·`raw_freqs`/c from
 `../20251029_T(L)/data/20251030_ff_2237_circular_rods_n_3p3_2.h5`, ascending 0.256→1.025;
 axis association independently confirmed: the ℓs minimum lands inside the gap, and a
@@ -423,6 +424,161 @@ conditions. The angular-spectrum pipeline
 unchanged. **A by-product for the air run:** its flux-based widths agree with the |E|²
 widths to ≤6% — the exit-plane |E|² convention is hereby validated for the air data
 (bounds the Goïcoechea interface-wave residual in §6).
+
+## 11. Lean rewrite of the CW notebook (2026-08-24)
+
+`20260806_Beam_Diameter_d_nu.ipynb` went from 14 cells to **8** and was re-scoped. It now
+measures the steady-state transverse spread on the exit face with **two** estimators and
+compares them to a closed-form diffusive baseline and the **independently measured**
+transmission spectrum. Everything that re-derived the gap, or a transmission proxy, *from the
+field data itself* is gone. Pre-rewrite copy: `backups_20260824/20260806_Beam_Diameter_d_nu.ipynb.bak`
+(plus git history).
+
+**Retired** — conclusions already recorded in §§2–7 and `Claude/`, so the notebook no longer
+re-derives them per run: the 7th-order polynomial S(ν)-envelope fit and the `S_rel`
+"relative transmission" proxy; the contiguous −20 dB gap finder and the validity mask built
+from it; the `WBOX` boxcar `d_avg` family; the 2×-decimation check; the ρ < 40a sub-aperture;
+the core-pixel speckle-contrast cell; the `file_ls`/`file_nuls`/`file_g` load and the kℓ*
+cell; and the two flank-dip quasi-mode blocks.
+
+**Read from their own runs, never re-derived.** The transport inputs of the diffusive
+baseline, ℓs(ν) and g(ν), come from `../data/{ls,g}_values/` — see §11.1. The gap band comes from
+`../../20250630 MPB Bands analysis/Data/gap_data.hdf5` (`Circular/0.22`, `np.isclose` on n):
+n = 3.30 → [0.3877, 0.4345], n = 2.90 → [0.4321, 0.4601], n = 2.40 → [0.4985, 0.5041].
+T(ν) comes from `data/slab_250x250x32/Transmission/…_background_n_1.00.h5`. The MPB window is
+the **periodic parent lattice's** gap — a design/reference band, not a measurement on this
+aperiodic slab — and it is labelled as such wherever it is shaded.
+
+**Transmission coverage (blocker).** That h5 holds only groups `2.40` (200 bins,
+ν ∈ [0.470, 0.530]) and `2.90` (250 bins, ν ∈ [0.390, 0.500], T down to 1.9e-6 — gap cleanly
+resolved). **There is no n = 3.30 transmission run**; confirmed at the source, the cloud
+folder `H:\Codes\tidy3d\data\20260813_Beam_Spreading_250_250_32_transmission` holds only
+`n_2.40` and `n_2.90`. At the default `n_index = "3.30"` the notebook prints a warning and
+leaves the T panel empty rather than substituting anything. To fill it:
+`20251001_…_transmission.py` → `20251007_Retireve_Transmission_Data.ipynb`. T is always
+plotted on **its own** ν axis — never interpolated onto the field axis, whose support differs.
+
+**Estimators — one streaming pass (~18 s over 498² × 1593 bins in RAM).** Product-Simpson
+weights on the true non-uniform grid; S1 = ∫I dA, S2 = ∫I² dA, M2 = ∫ρ²I dA, plus the rim
+power fraction at ρ > 45a. Then σ²(ν) = (M2/S1)/a² and d(ν) = 2√((S1²/S2)/π)/a. Both are
+per-bin scale-invariant, so the raw-DFT source envelope cancels. Asserted unit tests:
+I = exp(−ρ²/2s²) gives d = 4s and σ² = 2s² to < 1e-4 on the real grid.
+
+Their systematics are **complementary** — that is why both are now plotted (adversarially
+verified 2026-08-24):
+
+- A uniform floor biases **both up**, σ² by ⟨ρ²⟩_ap/σ²_beam ≈ 36× more than d; an aperture
+  cut biases **both down**, σ² by 5–24× more. d is *tolerant, not immune*: +6.7 % at a floor
+  of 1e-3·I_max and +65 % at 1e-2. The earlier "background-robust" wording overstated it.
+- Single-realization speckle biases **d low** by √(1+C²) ≈ ×1.15–1.20 (Monte-Carlo: ×1.157
+  for M = 3 fine-grain speckle). Use the *measured, pixel-resolved* contrast, not a nominal
+  1/√M — the 1/√M form over-corrects by up to 12 % when the grain is not ≪ the beam.
+  **σ² is unbiased by speckle** — that correction must not be applied to it.
+
+**Diffusive baseline — closed form (derived and verified this session).** The small-q
+expansion of the extrapolated-boundary slab kernel
+T(q) = sinh(q(ℓ*+z₀))·cosh(q z₀)/sinh(q(L+2z₀)) gives the second moment **exactly**:
+
+    σ²_dif = (2/3)[(L+2z₀)² − (ℓ*+z₀)²] − 2z₀²  =  (2/3)(L² − ℓ*²) + (4/3) z₀ (2L − ℓ*)
+
+(the z₀² terms cancel identically; the "− 2z₀²" is *required* in the first form). For
+ℓ* ≪ L, z₀ = 0 this is (2/3)L² = **103.95 a²** — flat in ν and ℓ*-free to leading order.
+Two independent adversarial checks (panelled Gauss-Legendre inverse Hankel, and a 1-D
+marginal in mpmath) agree to ≲1e-9; the notebook re-checks it in-cell against a direct
+Hankel transform (rel. −3.3e-6) and asserts it. σ² **increases** with z₀
+(∂σ²/∂z₀ = (4/3)(2L − ℓ*), constant) and **decreases** with ℓ*.
+
+Aperture truncation of the *ideal* diffusive profile on the ±125 µm square is negligible
+(−0.05 % on σ², −0.004 % on d at ℓ*/L = 0.1, z₀ = 0) because that kernel's tail is exponential
+with decay length (L+2z₀)/π; it only reaches −3 % on σ² at the largest z₀ reached here.
+
+### 11.1 The baseline is now measured, not guessed (2026-08-24, second pass)
+
+The first pass drew the baseline as a band over a *guessed* box (L/ℓ* ∈ [4, 10],
+z₀/ℓ* ∈ [1, 1.5]). That box is **retired**. Both inputs are now taken per frequency bin from
+runs we already have, so the baseline is a **ν-resolved curve with no free parameter**:
+
+- **ℓ*(ν) = ℓs(ν)/(1 − g(ν))** — ℓs from the mean-free-path runs
+  (`../data/ls_values/`), g from the structure-factor runs (`../data/g_values/`).
+- **z₀(ν) = (2/3) ℓ*(ν) (1+R)/(1−R)** — R the angle-averaged internal reflectance
+  (Zhu–Pine–Weitz), from n_eff = **Maxwell-Garnett of the measured ff = 0.2237 and the run's
+  n_rod**. The R integral is validated in-cell: R(1.33) = 0.4311 vs Haskell 1994 Table 2's
+  0.431, and R(1.00) = 0. → n = 3.30: n_eff = 1.2734, R = 0.373, **z₀ = 1.461 ℓ***;
+  n = 2.90: n_eff = 1.2523, R = 0.350, **z₀ = 1.384 ℓ***. (These reproduce the ×1.45 "MG"
+  anchor of §3, now derived rather than assumed.)
+
+**Scale trap — the two transport runs do NOT share a convention.** Getting this wrong shifts
+the baseline silently, so each branch is self-checked in the notebook by asserting that the
+ℓs minimum lands inside the MPB gap:
+
+| | ν axis of the run | length scale | ls-min lands at |
+|---|---|---|---|
+| n = 3.30 ℓs (`20251031_ls_values_n_3p3.h5`, ν from `20251029_T(L)/…raw_freqs`) | ν = 0.8·a·f/c (**native** a′ = 0.8a) | ×1.25 → slab scale | ν = 0.4123 (gap 0.3877–0.4345) ✓ |
+| n = 2.90 ℓs (`20260608_ls_values_n_2p9.h5`) | ν = linspace(0.32, 1.25, 1700) (**slab** a) | as-is | ν = 0.4437 (gap 0.4321–0.4601) ✓ |
+| n = 3.30 g (`n_3.3_ff_0.2237_g_data.h5`, `file4_N100000/g_avg`) | `nu` co-stored **ascending**, ν·λ = a′ | dimensionless | — |
+| n = 2.90 g (`n_2.90_ff_0.2237_g_data.h5`) | `nu` and `g` co-stored **descending** → reverse both | dimensionless | — |
+
+(The ×1.25 for the n = 3.30 file and the *absence* of it for n = 2.90 is not a typo: the two
+ℓs runs were set up at different structure scales — the n = 2.90 run used `box_size = 14.3`
+with a = 2.5626 µm, the n = 3.30 run the native a′ = 2.0501 µm build. Wrong choice ⇒ the ℓs
+minimum lands at ν = 0.5154 or 0.3550, nowhere near the gap, which is what the assert catches.)
+
+Measured ℓ* over the band: **1.07–8.51 µm** for n = 3.30 (L/ℓ* = 3.8–29.8) and
+**1.00–12.96 µm** for n = 2.90 (L/ℓ* = 2.5–31.9), with the minimum sitting in the gap in both
+cases. Bins with ℓ* > L/4 are masked (diffusion marginal): 0 % of bins for n = 3.30, 6 % for
+n = 2.90. σ²_dif(ν) is the closed form evaluated bin by bin; d_dif(ν) needs one Hankel
+transform per ℓ* — since z₀ ∝ ℓ*, d_dif is a smooth function of the *single* parameter ℓ*, so
+it is built on 20 log-spaced ℓ* knots and interpolated (≤0.24 % interpolation error, whole cell
+≈ 22 s). The figures show the z₀-corrected curve, the z₀ = 0 curve (no internal reflection,
+a hard lower bound) and the span between them.
+
+**Result — measured vs the zero-parameter fully-diffusive prediction:**
+
+| | ℓ* (mid-band) | σ² measured | σ²_dif (z₀ = 0) | ratio | d ensemble | d_dif (z₀ = 0) | ratio |
+|---|---|---|---|---|---|---|---|
+| n = 3.30, ν ∈ [0.460, 0.500] | 4.73 µm | 164 a² | **185** (102) a² | **0.89** | 27.5–28.7 a | **33.8** (25.9) a | 0.81–0.85 |
+| n = 2.90, ν ∈ [0.485, 0.500] | 2.96 µm | 146 a² | **154** (103) a² | **0.95** | 26.1–27.2 a | **31.5** (26.1) a | 0.83–0.86 |
+
+Two things this buys that the guessed band could not:
+
+1. **σ² agrees with diffusion to 5–11 %** with nothing tuned — and, more tellingly, the
+   *measured* σ²(ν) **rises with ν following ℓ*(ν)** above the gap, tracking the red curve bin
+   for bin (n = 3.30 over 0.44–0.50, n = 2.90 over 0.41–0.50). A flat band cannot make or
+   test that statement. This also retires the "unexplained +6 % d(ν) slope" of §5 as a
+   candidate anomaly: an ℓ*-driven baseline slopes the same way.
+2. **d sits 15–19 % *below* the same prediction** while σ² sits within 5–11 % of it. Both are
+   computed from the same profile through the same estimators, so this is a **shape**
+   statement, not a level one: at matched second moment the measured exit profile is more
+   peaked than the diffusive one (speckle-corrected d is smaller ⇒ smaller A_eff ⇒ more power
+   concentrated, with the residual second moment carried by a broader skirt). Below ν ≈ 0.40
+   the measured σ² runs well *above* the prediction where the rim fraction is also climbing —
+   read that as aperture/edge contamination, not transport.
+
+**Caveats to carry.** g is Born/RDG single-scattering (the generator warns |m−1| ≫ 0.1), so
+ℓ*(ν) is indicative rather than exact; σ²_dif is dominated by L and z₀, so the *level* is robust
+but the ν-*shape* inherits whatever g gets wrong. The ℓs curves are unsmoothed, so the baseline
+carries their measurement noise (visible as small jitter, larger for the 1700-point n = 2.90
+file). And the MG effective index is a model choice: Bruggeman would give n_eff ≈ 1.36 / 1.31
+and a ~20 % higher z₀ — the volume-ε value (n_eff ≈ 1.79, z₀ = 4ℓ*) remains excluded by §3.
+
+**Measured, single realization — the rest.** Rim power at ρ > 45a is 0.09 % mid-band but
+**49 % median inside the MPB gap** for n = 3.30, saturating near 1 over ν ≈ 0.39–0.43: inside
+the gap the exit signal is floor/rim-dominated and *neither* estimator is a beam width. Those
+bins are plotted in a muted colour and labelled so; no threshold fit decides it — the shaded
+MPB band is the statement. For n = 2.90, which does have T(ν), the measured transmission
+minimum falls inside the same shaded MPB band — an independent confirmation of the window.
+The §4/§6 guardrail still governs any dip: a CW width dip near a gap edge gives an
+attenuation/confinement scale, **not ξ** (absorption and Bragg attenuation both produce
+σ² ~ 2 L L_att; a single L cannot separate them).
+
+**What the notebook now contains (8 cells).** Figure 1 σ²(ν), Figure 2 d(ν) — each with the
+MPB gap shaded, the ν-resolved diffusive curve from the measured ℓ*(ν) plus its
+z₀ = 0 lower bound (§11.1), and a shared-x lower panel carrying the
+measured T(ν) (or the explicit "no transmission run for this n" note) plus the rim fraction on
+a twin axis as the aperture-saturation warning; the interactive ipywidgets exit-face map,
+whose locator strip now plots the *measured* T(ν) instead of the retired `S_rel`; and a new
+**(x, y, ν) exit-face speckle point cloud** (plotly), the CW analogue of the (x, y, t) cloud
+in §8's notebook.
 
 ## References
 
