@@ -8,6 +8,65 @@ replaces the old 12×-tiled SHU experiment. Analysis notebooks:
 (time-domain σ²(t), d(t) — §8; all physics prose lives here).
 Deep-dive working documents and the adversarial-verification scripts are under `Claude/`.
 
+**2026-08-25 review (CW notebook).** g(ν) now comes from the externally recomputed
+`../data/g_values/n_rod_*_ff_0.2249.h5`, ℓs(ν) from the harmonized
+`../data/ls_values/n_rod_*_ff_0.2237.h5` — all reversal/scale bookkeeping retired (§1, §11.1);
+the rim-power diagnostic was removed from the notebook everywhere; and the σ² diffusive
+baseline was audited by three independent agents — closed form **confirmed**, both baselines
+now estimator-matched, and the low-ν measured-above-baseline excess identified as
+spectral-edge **floor power** in the measurement (§11).
+
+**2026-08-25 — gap-edge σ²(t) plateaus confirmed core-real (n = 3.3, narrow windows).**
+With the time notebook's FWHM-0.005 windows, the two edge-adjacent windows ν = 0.3842 / 0.4380
+(edges + 0.0035) plateau at σ²₅₀ = 135 / 105 a² (σ²_bs 147 / 118, pedestal fraction ≤ 0.01,
+late slope +0.9 / +0.4 a²/ps over t = 25–55 ps) while the ν ± 0.02 flank controls and mid-band
+grow at ~+7 a²/ps to 600–800 a². The plateau passes the pedestal gate (§ core-faithful
+estimators), sits inside the validity clocks (0.4380 fully clean; 0.3842's 0.1 ps rim trip is
+the known over-conservative flank transient), cannot be absorption (lossless) or uniform Bragg
+attenuation (cancels in M2/P), and cannot be an aperture artifact (windows plateauing at
+105–147 a² while neighbours sail past to ~500 a² cannot share a ceiling).
+
+**CORRECTED same day (two adversarial agents, physics + numerics):** the earlier "ξ ≈ 4–6 a
+via σ²_∞ ≈ 2Lξ" reading is **retracted** — that mapping holds only for ξ ≪ L (corrected form
+σ²_∞ = 2Lξ − 2ξ², ceiling L²/2 = 78 a², *below* both plateaus), and the measured
+σ²_∞ = 105–147 a² sits at **0.67–0.94 L²**, essentially Cherroret's *mobility-edge* asymptote
+(σ_∞ ≈ L). Honest statement: long-lived states spanning a transverse extent comparable to L —
+**critical/marginal rather than deep localization; ξ ≳ L/2 with O(1) uncertainty**. Further
+caveats from the audit: the plateau is a quasi-plateau (persistent ~+1 a²/ps drift, +7–12%
+over 25→55 ps); 0.3842 formally fails its own rim gate (t_valid = 0.1 ps — the documented
+over-conservative flank transient, but it must be re-gated before that window is quoted); the
+growing controls are valid only inside their own floor clocks (0.48: 28 ps); σ²_∞ carries a
+±15% estimator-definition spread; and one loophole is NOT excluded by the cancellation
+argument — **time-dependent spectral filtering** within the 0.005 window (late-time weight
+migrating to the highest-Q near-edge sliver can fake a plateau; operates exactly in the
+edge+0.0035 windows). Discriminators, in order of power: **L-scaling (σ²_∞ ∝ L localized vs
+∝ L² critical)**, narrower windows / late-time spectral-centroid tracking, realization
+ensemble (and the Sperling–Maret 2013→2016 retraction is the cautionary precedent for
+plateau-only claims).
+
+**2026-08-25 (same day, follow-up) — monochromatic CW ξ candidate via the attenuated kernel.**
+The §2.2 recipe is implemented in the CW notebook (new cell after the figures): the kernel with
+κ = √(q²+L_att⁻²) is pushed through the same estimators and inverted per bin from BOTH the
+ensemble d and the core σ²_w (ρ ≤ 30a). Result for n = 3.3: both routes funnel smoothly into
+the gap edges over ~0.03 in ν; d-route ≈ 1.0–1.3 a at the edges (numerically solid — inside
+the invertible range, not a clamp artifact), σ²-route ≈ 4.9 a at the upper edge.
+
+**CORRECTED same day (adversarial audit):** the claimed "σ²-route ≈ 4.9 a = like-for-like
+match to the time-domain ξ" is **retracted as a quantitative closure**: the CW number rests on
+a measured core σ²_w ≈ 86 a², materially below the TD plateau (105–147 a²), and feeding the TD
+values through the same CW table gives 8.6 a → ∞, never ≈ 5 a — the operating point sits just
+below the ill-conditioned flat top of the inversion table (window-sensitivity at fixed
+σ²_w = 110 a²: 61 a / 11 a / 9.6 a for 25/30/35 a windows). More fundamentally, **stationary
+σ² is NOT attenuation-immune** (unlike pulsed σ²(t)): the fitted 1/L_att² lumps localization,
+Bragg evanescence and any absorption with no way to apportion them from one CW profile, and
+near a gap edge the Bragg term generically dominates — so the CW L_att(ν) panel is an
+**attenuation/confinement length**, not ξ, exactly as the §4/§6 guardrail always said. What
+the CW panel is still good for: the monochromatic ν-resolution of the confinement onset
+(funnel shape into both edges), and the d-route ≈ 1 a as the dominant-spot core scale (the
+"inf" bins at the lower edge flag a mixed peak+halo population, not positive
+diffusion-consistency). ξ itself must come from the time domain + L-scaling; the speckle band
+×1.15–1.20 is not a valid correction at few-mode edge bins (carried as systematic).
+
 **Headline (2026-08-07).** The photonic gap of this random structure sits at
 ν ≈ [0.389, 0.433] (−20 dB, contiguous), matching both the design window [0.388, 0.435]
 and the MPB periodic-crystal reference [0.388, 0.434]. Two genuine transverse-narrowing
@@ -52,7 +111,7 @@ that swings ~15× with estimator choice at the dip bins (see Claims table, C4).
 |---|---|
 | `20251001_numerical_experiment_using_td_cylinders.py` | built + launched the cloud run (project `20260805_Beam_Spreading_250_250_32`) |
 | `20251007_Retireve_Field_Data.ipynb` | downloaded the cloud result into `data/slab_250x250x32/…h5` |
-| `20260806_Beam_Diameter_d_nu.ipynb` | **the CW analysis** (this experiment). **Rewritten lean 2026-08-24 (§11):** 8 cells — σ²(ν) and d(ν) vs a fully-diffusive baseline built per-ν from the *measured* ℓs, g and ff (§11.1) and the *measured* T(ν), interactive beam map, (x, y, ν) speckle cloud. The S(ν)-envelope gap finder / validity mask / kℓ* / d_avg machinery is retired; pre-rewrite copy in `backups_20260824/` |
+| `20260806_Beam_Diameter_d_nu.ipynb` | **the CW analysis** (this experiment). **Rewritten lean 2026-08-24 (§11):** 9 cells — σ²(ν) and d(ν) vs a fully-diffusive baseline built per-ν from the *measured* ℓs, g and ff (§11.1) and the *measured* T(ν), a speckle-mitigation cell (added 2026-08-27: measured ν-decorrelation of the speckle → W-bin window averages; σ² via summed integrals ±scatter/√M_eff, d as the PR of the window-mean map with the *measured*-contrast correction √(1+C²/M_eff) replacing the assumed ×1.15–1.20 band; mid-band C = 0.65 confirms it), interactive beam map, (x, y, ν) speckle cloud. The S(ν)-envelope gap finder / validity mask / kℓ* / d_avg machinery is retired; pre-rewrite copy in `backups_20260824/` |
 | `bst_pipeline.py` | validated streaming/estimator primitives from the 2026-07 audit (docstrings = conventions; its `L_SLAB_UM=14.3` and tiling notes refer to the OLD 12× dataset) |
 | `20260808_Beam_Spreading_time.ipynb` | **time-domain first look** (this run): σ²(t), d(t), P(t) + exit-face movies (§8). Replaces `20260602_IPR_Calculation_FFT.ipynb` (old 12× data; deleted 2026-08-08 — committed copy in git history, old-data backup in `backups_20260716/`) |
 | `movies/beam_spreading_nu*.gif` | §8 exit-face movies: ν = 0.350, 0.389, 0.437, 0.550 (log₁₀ I, fixed norm, 300 frames / 40 ps) |
@@ -63,23 +122,22 @@ that swings ~15× with estimator choice at the dip bins (see Claims table, C4).
 | `Claude/audit_workspace/random_slab/` | this run's streaming pass, analysis scripts, claims file, and adversarial-verification scripts (`verify/`) |
 | `backups_20260716/`, `Claude/audit_workspace/steady/…BACKUP…` | backups of the retired `20251008_IPR_Calculation.ipynb` (deleted 2026-08-07; also in git history) |
 
-Auxiliary inputs (both **outside** this folder):
-ℓs(ν): `../data/ls_values/20251031_ls_values_n_3p3.h5` (`"0.2237"`, 400 pts;
-its ν axis is reconstructed as ν = 0.8·a·`raw_freqs`/c from
-`../20251029_T(L)/data/20251030_ff_2237_circular_rods_n_3p3_2.h5`, ascending 0.256→1.025;
-axis association independently confirmed: the ℓs minimum lands inside the gap, and a
-Beer-Lambert fit of the co-stored T(L) data co-locates, corr 0.88).
-g(ν): `../data/g_values/n_3.3_ff_0.2237_g_data.h5` — treated as faithful (generated outside
-this workspace for a statistically similar structure; note its attrs say spheroids AR 2.5,
-n_rod = 2.93). **Layout differs from the old n=2.90 g file**: `nu` is co-stored
-**ascending** (ν·λ_um/(0.8a) = 1 exactly), groups by point count; we use
-`file4_N100000/g_avg` (all `reliable` in-band). g is *negative* around the gap (−0.42 at
-ν≈0.41: backscattering-dominated), so ℓ* = ℓs/(1−g) < ℓs there.
-**SCALE (caught by the adversarial pass):** both files live at the *native* structure scale
-a′ = 0.8a = 2.050 µm (g-file attr; ℓs-dip wavelength ratio 1.23 ≈ 1.25). At matched
-(dimensionless) ν, this ×1.25-scaled slab has ℓ_phys = **1.25 ×** the file value — the
-notebook applies the factor. Consequences: mid-band ℓ* ≈ 6.3 µm (L/ℓ* ≈ 5), gap-centre
-ℓ* ≈ 1.1 µm, and min kℓ* = 1.07 (not 0.85).
+Auxiliary inputs (both **outside** this folder; **harmonized 2026-08-25** — every file is
+slab-scale with ascending ν = a·f/c and is used **as-is**, no reversal, no 0.8a/×1.25
+bookkeeping in the notebook any more):
+ℓs(ν): `../data/ls_values/n_rod_3.3_ff_0.2237.h5` (400 pts, ν 0.2563→1.0251) and
+`n_rod_2.9_ff_0.2237.h5` (1700 pts, ν 0.32→1.25) — bit-identical replumbs of the old dated
+files (n = 3.3: `20251031_ls_values_n_3p3.h5` ×1.25 on ν = 0.8·a·`raw_freqs`/c, verified
+max|Δ| = 0; n = 2.9: `20260608_ls_values_n_2p9.h5` unchanged), with the old scale conversion
+baked in and provenance in the root attrs. The ℓs minimum lands inside each n's MPB gap
+(ν = 0.4124 / 0.4437 — asserted in the notebook).
+g(ν): `../data/g_values/n_rod_3.3_ff_0.2249.h5` and `n_rod_2.9_ff_0.2249.h5` — recomputed
+**externally** 2026-08-25 (300 pts, ν 0.0891→2.05, datasets `nu`/`g`), now authoritative;
+the old `*_g_data.h5` files are retired and no longer on disk (the pre-swap notebook could
+not run). Filename ff = 0.2249 is the g run's nominal geometry; the slab's measured
+ff = 0.2237 is kept for n_eff (flagged, not silently reconciled). g is **negative over the
+whole analysis band** (−0.45…−0.09: backscattering-weighted Born/RDG single scattering), so
+ℓ* = ℓs/(1−g) < ℓs everywhere on the band.
 
 ## 2. Estimator and error model
 
@@ -107,6 +165,58 @@ d(ν) ± speckle σ**, ensemble = raw×(1.15–1.20). Additional per-bin uncerta
 sampling: the 2×-decimation test shows **no systematic bias** but a ±1.6% (median) / 4%
 (p90) resampling scatter — and **+11…15% at the two dip bins** (quasi-mode spots have
 sub-grid structure), so dip d values carry ~10–15% error.
+
+### 2.1 Why d, not σ², is the estimator of record (2026-08-25 note)
+
+Both estimators come from the same profile, but they weight it oppositely, and that decides
+everything on a finite, noisy monitor:
+
+1. **σ² weights by ρ² — it amplifies the periphery.** Any floor, halo, or leakage power at
+   large ρ is multiplied by ρ² ≈ 10³–10⁴ a²: a floor holding 1 % of the power shifts σ² by
+   ~+10 %, one holding 17 % (the ν = 0.33 spectral edge) by ~+90 %. Quantified sensitivities:
+   ×36 (uniform floor) and ×5–24 (aperture cut) larger than d's. Even mid-band, the
+   full-aperture ⟨ρ²⟩ is ~50 % halo-carried.
+2. **d weights by I² — it locks onto the bright core.** A_eff = (∫I)²/∫I² is dominated by the
+   pixels that actually carry the beam: +6.7 % at a 1e-3 floor, insensitive to the aperture,
+   unchanged through every floor experiment run this session.
+3. **d's one bias is known, one-sided and correctable.** Single-shot speckle biases d low by
+   exactly √(1+C²) = ×1.15–1.20 with the *measured* contrast (derivation re-confirmed
+   blind 2026-08-25). σ² is speckle-*unbiased* — but its floor/halo biases depend on unknown
+   structure and are unbounded; a bias you can correct beats an absence of bias you cannot.
+4. **Empirical verdict of this session:** exact uniform-floor subtraction moved σ² by −20 % at
+   the band edge and still left a 20–45 % unexplained core excess below ν ≈ 0.40 (Born-g ℓ*
+   underestimate suspected); d moved by nothing through all of it. σ² earns trust only in its
+   windowed, floor-subtracted core form (ρ ≤ 30a, matched baseline — now in the notebook),
+   and even that inherits the ℓ*(ν) input uncertainty below the gap.
+
+So: quote **ensemble-corrected d against the z₀-span** for beam-width statements; use σ²
+(windowed/corrected) as the halo diagnostic and consistency check, never as the headline.
+
+### 2.2 Getting a localization length from d instead of σ² (recipe + guardrails)
+
+The guardrail applies to *any* width estimator at a single L: a CW width deficit gives an
+**attenuation/confinement length L_att, not ξ**, because absorption, Bragg attenuation and
+localization all truncate long transverse paths identically (σ² ≃ 2L·L_att; the d-analogue
+below). The honest d-based pipeline is:
+
+1. **Detect:** a d(ν) deficit below the diffusive d_dif(ν) that exceeds the stacked
+   systematics — speckle ×1.15–1.20 (one-sided up on the data) and the z₀ ∈ [0, z₀^MG] span
+   (one-sided down on the baseline). Only the part below the *z₀ = 0 dashed curve* is
+   unambiguous; between the curves it is "consistent with diffusion".
+2. **Quantify — attenuated kernel through the PR estimator:** give the CW kernel a transverse
+   attenuation by the standard substitution q → √(q² + 1/L_att²):
+   T(q) = sinh(κ(ℓ*+z₀))cosh(κz₀)/sinh(κ(L+2z₀)), κ = √(q²+L_att⁻²), push it through the
+   *same* `dif_pair` machinery (Hankel → real grid → PR estimator) to get d(L_att; ℓ*, z₀),
+   and invert the measured ensemble-corrected d(ν) per bin → **L_att(ν)**. This is a
+   one-parameter fit with everything else measured, and it is estimator-matched by
+   construction (the notebook's existing `T_rho` needs only the κ substitution).
+3. **Interpret — three gates before calling L_att a ξ:** (i) **L-scaling** (the planned
+   thickness series): ξ is L-independent, Bragg attenuation scales with the gap depth,
+   absorption is absent in these lossless runs; (ii) **time domain**: σ²(t)/d(t) saturation at
+   the same ν (absorption-immune, §8 notebook); (iii) **not at a flank dip**: the ν = 0.389 /
+   0.437 dips are single quasi-mode spots — d there is a *mode size*, not a transport width
+   (§4), and L_att from the deep gap is Bragg (L_att ≪ a, §6 deep-dive). Only an L_att that
+   is ≫ the Bragg scale, stable under (i) and echoed by (ii) may be quoted as ξ.
 
 ## 3. Diffusive baseline and its validity
 
@@ -459,8 +569,9 @@ leaves the T panel empty rather than substituting anything. To fill it:
 plotted on **its own** ν axis — never interpolated onto the field axis, whose support differs.
 
 **Estimators — one streaming pass (~18 s over 498² × 1593 bins in RAM).** Product-Simpson
-weights on the true non-uniform grid; S1 = ∫I dA, S2 = ∫I² dA, M2 = ∫ρ²I dA, plus the rim
-power fraction at ρ > 45a. Then σ²(ν) = (M2/S1)/a² and d(ν) = 2√((S1²/S2)/π)/a. Both are
+weights on the true non-uniform grid; S1 = ∫I dA, S2 = ∫I² dA, M2 = ∫ρ²I dA (the rim-power
+diagnostic was removed 2026-08-25 — the lower panels show the measured T(ν) only).
+Then σ²(ν) = (M2/S1)/a² and d(ν) = 2√((S1²/S2)/π)/a. Both are
 per-bin scale-invariant, so the raw-DFT source envelope cancels. Asserted unit tests:
 I = exp(−ρ²/2s²) gives d = 4s and σ² = 2s² to < 1e-4 on the real grid.
 
@@ -474,6 +585,70 @@ verified 2026-08-24):
   for M = 3 fine-grain speckle). Use the *measured, pixel-resolved* contrast, not a nominal
   1/√M — the 1/√M form over-corrects by up to 12 % when the grain is not ≪ the beam.
   **σ² is unbiased by speckle** — that correction must not be applied to it.
+
+**σ²_{I²} — concentration-weighted width (added 2026-08-27).** Third estimator:
+σ²_{I²} = ∫ρ̃²I²dA / ∫I²dA about the **I²-centroid** (Gaussian: σ²_{I²} = s² = σ²/2 = d²/16;
+asserted in-cell). A true variance with d's concentration weighting, answering the question
+"why does σ² not dip at the flanks like d": at the gap edges the exit field is a bright
+quasi-mode spot on a broad diffuse background, so ordinary σ² (power-weighted about the
+injection axis) keeps reading the background — flank bands give (d/d_dif)² = 0.14–0.17 vs
+σ²/σ²_dif = 0.69–0.91 — while σ²_{I²} tracks the concentration (≈0.6 at both edges, ~1.06
+in the diffusive mid-band, against its own kernel-matched baseline via `dif_pair`).
+Properties: centroid-referencing removes the off-axis-spot penalty (upper flank spot ~8a
+off-axis ≈ +64 a² on axis-referenced σ²); a uniform floor enters only at O(b²) so no floor
+correction is applied; the below-gap decaying halo is bright and structured and still
+inflates it there (×1.3–1.45), so below ν ≈ 0.40 it shares σ²'s halo caveat. **Morphology
+diagnostic only** — it is *not* Cherroret's observable (that is the axis-referenced,
+I-weighted second moment of the ensemble mean), so it must never be compared to the
+σ²_dif/σ²_loc closed forms; and since this structure mixes transport regimes (diffusion,
+Bragg attenuation/evanescence, quasi-mode transmission, incipient localization), its flank
+dip flags *concentration*, not any one mechanism. The σ²-vs-d disagreement itself is the
+spot-on-background diagnostic — do not "fix" σ² to look like d.
+
+**Profile-calibrated baseline — z₀_eff(ν) (added 2026-08-27).** Below ν ≈ 0.36 all three
+estimators sit *above* the plotted baseline by mutually consistent factors (σ² ×1.13–1.20,
+σ²_{I²} ×1.3–1.45, d ≈ ×1.09 after the ensemble correction), yet the ν-averaged exit profile
+there is **still a single extrapolated-boundary kernel** (log-rms 6% over ρ = 3–46a) — with
+z₀_eff = 2.4 ℓ*_Born instead of the MG/ZPW 1.46 ℓ* (mid-band fit: 0.95 ℓ*, rms 5%); the
+measured tail decay length is 16.9 µm vs the MG kernel's 15.5 µm. Diagnosis: the **Born/RDG
+g misestimates the ν-trend of ℓ*** — too small on the long-wavelength side (at fixed
+z₀/ℓ* = 1.46 the below-gap data want ℓ*_eff ≈ 9.4 µm vs Born 5.72 µm; scattering should
+weaken Rayleigh-fast toward low ν but the Born ls file barely moves, 8.0 → 5.96 µm across
+the band), and slightly too large mid-band. This *quantifies* the "suspect ℓ* underestimated
+by the Born g first" caveat already in cell-04. The calibration cell (after speckle
+mitigation) fits z₀_eff per 120-bin ν window from the mean-profile *shape* (scale-free log
+fit, ℓ* held at Born; z₀_eff is an effective parameter absorbing every input error — Born
+ℓ*, MG n_eff, ZPW R) and pushes (ℓ*_Born, z₀_eff) through `dif_pair`. **Presentation rule
+(2026-08-28, user decision):** because z₀_eff is field-data-derived, the calibrated values
+are *printed as consistency ratios only* and never drawn as a baseline — the figure's moment
+panels compare the window-mean measurements to the independent ℓ*-only baseline, with the
+z₀_eff(ν) fit shown in its own diagnostic panel. The physics content is (i) the
+z₀_eff(ν) trend = the size of the Born-g input error, and (ii) the flank windows where *no*
+kernel fits (rms > 0.15): quasi-mode/attenuation bands where no diffusive width applies.
+
+**Hard intensity threshold — tested and rejected as an estimator (2026-08-28).** The idea
+"discard pixels below f·I_max, then σ² and d get better" was tested at f = 10⁻⁶, 10⁻³, 10⁻²,
+5·10⁻² (demo cell after the calibration cell, per-bin, each f with its own matched
+thresholded kernel baseline). Verdict: the cut **manufactures confinement** — in the
+verified-diffusive mid-band, per-bin σ²_th reads 145/98/60 a² at f = 10⁻³/10⁻²/5·10⁻²
+against a true 165 a² (d_th: 23.6/19.9/11.9 vs raw 24.3), because a diffusive beam's
+exponential tails carry the σ² weight and the cut removes *signal*, not background. The
+result never plateaus in f (no principled threshold exists), and the per-bin maximum is a
+speckle grain ~2.7× the envelope peak, so the effective cut is both too high and bin-to-bin
+unstable; even on 120-bin mean maps the measured/matched-baseline ratio degrades 0.95 → 0.6
+as f rises. f = 10⁻⁶ is the control: the measured floor sits above 10⁻⁶·I_max, so that cut
+is a no-op (asserted in-cell against the raw estimators). The legitimate versions of the
+same idea remain the estimators of record: measured-floor subtraction (exact, anchored to
+the ρ > 45a ring), the ρ ≤ 30a windowed σ² (cut cancels against the matched baseline), and
+σ²_{I²} (soft, parameter-free intensity weighting). The demo cell stays in the notebook so
+the dead end is visible, not re-discovered.
+
+**Threshold-figure baseline (2026-08-28, user decision).** The threshold demo cell's figure
+draws the STANDARD untresholded baseline presentation of Figs 1–3 (red MG-z₀ curve + green
+z₀ = 0 internal-reflection span) behind the four thresholded clouds; the per-cut *matched*
+thresholded baselines are printed, not drawn. Figs 1–3 themselves keep their original
+presentation (red curve, green span, z₀ = 0 dashed, windowed-core series + matched windowed
+baseline) — a briefly-applied "single baseline everywhere" change was reverted the same day.
 
 **Diffusive baseline — closed form (derived and verified this session).** The small-q
 expansion of the extrapolated-boundary slab kernel
@@ -492,6 +667,34 @@ Aperture truncation of the *ideal* diffusive profile on the ±125 µm square is 
 (−0.05 % on σ², −0.004 % on d at ℓ*/L = 0.1, z₀ = 0) because that kernel's tail is exponential
 with decay length (L+2z₀)/π; it only reaches −3 % on σ² at the largest z₀ reached here.
 
+**2026-08-25 baseline audit (three independent agents: blind re-derivation, line-by-line code
+audit, numeric verification).** The kernel (including the cosh(qz₀) *flux* factor — it is the
+exit-face flux −D∂φ/∂z, not the density) and the closed form were re-derived from scratch and
+confirmed; the untruncated numeric Hankel transform reproduces the closed form to ≤0.13% over
+the full ℓ* range. The one genuine inconsistency was that **d_dif was estimator-matched while
+σ²_dif was the infinite-plane closed form** — a one-sided +0.1…+4% baseline bias (aperture
+truncation, largest at large ℓ*). Both baselines now go through `dif_pair` (same estimators,
+Simpson weights and square aperture as the data); the closed form is kept as a printed sanity
+number. Where the measured σ²(ν) *exceeds* the corrected baseline (the low-ν spectral edge),
+the excess is **floor power in the measurement**, not a baseline error: at ν = 0.33 (n = 2.9)
+ρ > 30a holds ~17% of the power but ~57% of the second moment — a uniform-floor signature
+(a floor holding fraction f of the power adds ≈ f·1590 a², and 0.175·1590 ≈ the observed
+excess) — while aperture truncation and every physical mechanism (localization, absorption,
+ballistic spike) push the measurement *down*, never up.
+
+**Floor-subtracted σ² (added 2026-08-25, same session).** The streaming pass now also estimates
+the per-bin uniform floor b(ν) from the ρ > 45a ring (pure floor outside the gap: the diffusive
+tail there is < 10⁻³) and plots σ²_corr = (M2 − bW2)/(S1 − bW0) — exact for a flat floor —
+alongside the raw points; bins with floor fraction > 30 % (in-gap, 3 %) are flagged
+uncorrectable. Result (n = 2.9): mid-band 146 → 143 a² (ratio to baseline 0.93 → 0.91); at the
+ν = 0.33–0.36 spectral edge 409 → 325 a² — i.e. the subtraction removes only **~40 %** of the
+low-ν excess, confirming the residual is a *decaying halo*, not a flat floor (consistent with
+the earlier ring ratios: tail power falls faster than area). Below ν ≈ 0.40 σ² therefore remains
+a beam+halo diagnostic, not a clean transport comparison, even after correction — d(ν) stays
+the estimator of record there. The remaining halo candidates (unresolved): marginal diffusion
+at large ℓ* (L/ℓ* → 2.5, baseline masked anyway), source-window spectral leakage from
+mid-band bins, and source-aperture convolution.
+
 ### 11.1 The baseline is now measured, not guessed (2026-08-24, second pass)
 
 The first pass drew the baseline as a band over a *guessed* box (L/ℓ* ∈ [4, 10],
@@ -507,52 +710,56 @@ runs we already have, so the baseline is a **ν-resolved curve with no free para
   n = 2.90: n_eff = 1.2523, R = 0.350, **z₀ = 1.384 ℓ***. (These reproduce the ×1.45 "MG"
   anchor of §3, now derived rather than assumed.)
 
-**Scale trap — the two transport runs do NOT share a convention.** Getting this wrong shifts
-the baseline silently, so each branch is self-checked in the notebook by asserting that the
-ℓs minimum lands inside the MPB gap:
+**Scale trap — retired 2026-08-25.** The two transport runs historically did NOT share a
+convention (n = 3.30 at the native a′ = 0.8a needing ×1.25 to the slab scale, n = 2.90 at the
+slab scale; the old n = 2.90 g file stored descending). All of that bookkeeping is now baked
+into the harmonized `n_rod_*` files (§1 auxiliary inputs; the ℓs replumb was verified
+bit-identical against the old dated files), and the notebook reads every file **as-is**:
+ascending slab-scale ν, no `[::-1]`, no ×0.8/×1.25. The self-check survives — the ℓs minimum
+must land inside the MPB gap (ν = 0.4124 for n = 3.30, gap 0.3877–0.4345; ν = 0.4437 for
+n = 2.90, gap 0.4321–0.4601) — joined by new asserts: both ν axes strictly ascending, both
+files cover the full field band (`np.interp` would otherwise extrapolate as a constant,
+silently), and 1 − g bounded away from 0 before forming ℓ* = ℓs/(1−g).
 
-| | ν axis of the run | length scale | ls-min lands at |
-|---|---|---|---|
-| n = 3.30 ℓs (`20251031_ls_values_n_3p3.h5`, ν from `20251029_T(L)/…raw_freqs`) | ν = 0.8·a·f/c (**native** a′ = 0.8a) | ×1.25 → slab scale | ν = 0.4123 (gap 0.3877–0.4345) ✓ |
-| n = 2.90 ℓs (`20260608_ls_values_n_2p9.h5`) | ν = linspace(0.32, 1.25, 1700) (**slab** a) | as-is | ν = 0.4437 (gap 0.4321–0.4601) ✓ |
-| n = 3.30 g (`n_3.3_ff_0.2237_g_data.h5`, `file4_N100000/g_avg`) | `nu` co-stored **ascending**, ν·λ = a′ | dimensionless | — |
-| n = 2.90 g (`n_2.90_ff_0.2237_g_data.h5`) | `nu` and `g` co-stored **descending** → reverse both | dimensionless | — |
-
-(The ×1.25 for the n = 3.30 file and the *absence* of it for n = 2.90 is not a typo: the two
-ℓs runs were set up at different structure scales — the n = 2.90 run used `box_size = 14.3`
-with a = 2.5626 µm, the n = 3.30 run the native a′ = 2.0501 µm build. Wrong choice ⇒ the ℓs
-minimum lands at ν = 0.5154 or 0.3550, nowhere near the gap, which is what the assert catches.)
-
-Measured ℓ* over the band: **1.07–8.51 µm** for n = 3.30 (L/ℓ* = 3.8–29.8) and
-**1.00–12.96 µm** for n = 2.90 (L/ℓ* = 2.5–31.9), with the minimum sitting in the gap in both
-cases. Bins with ℓ* > L/4 are masked (diffusion marginal): 0 % of bins for n = 3.30, 6 % for
-n = 2.90. σ²_dif(ν) is the closed form evaluated bin by bin; d_dif(ν) needs one Hankel
-transform per ℓ* — since z₀ ∝ ℓ*, d_dif is a smooth function of the *single* parameter ℓ*, so
-it is built on 20 log-spaced ℓ* knots and interpolated (≤0.24 % interpolation error, whole cell
-≈ 22 s). The figures show the z₀-corrected curve, the z₀ = 0 curve (no internal reflection,
-a hard lower bound) and the span between them.
+Measured ℓ* over the band (harmonized g files, 2026-08-25): **1.09–9.31 µm** for n = 3.30
+(L/ℓ* = 3.4–29.4) and **0.95–13.04 µm** for n = 2.90 (L/ℓ* = 2.5–33.7), with the minimum
+sitting in the gap in both cases. Bins with ℓ* > L/4 are masked (diffusion marginal): 1 % of
+bins for n = 3.30, 5 % for n = 2.90. Since z₀ ∝ ℓ*, both baselines are smooth functions of the
+*single* parameter ℓ*, so **σ²_dif(ν) and d_dif(ν) are both** built from `dif_pair` (one
+Hankel transform per knot, pushed through the measurement's estimators, Simpson weights and
+square aperture) on 20 log-spaced ℓ* knots and interpolated (≤0.05 % knot-midpoint error);
+the infinite-plane closed form is printed alongside as a sanity number (1–2 % above the
+estimator-matched value mid-band). The figures show the z₀-corrected curve, the z₀ = 0 curve
+(no internal reflection, a hard lower bound) and the span between them.
 
 **Result — measured vs the zero-parameter fully-diffusive prediction:**
 
 | | ℓ* (mid-band) | σ² measured | σ²_dif (z₀ = 0) | ratio | d ensemble | d_dif (z₀ = 0) | ratio |
 |---|---|---|---|---|---|---|---|
-| n = 3.30, ν ∈ [0.460, 0.500] | 4.73 µm | 164 a² | **185** (102) a² | **0.89** | 27.5–28.7 a | **33.8** (25.9) a | 0.81–0.85 |
-| n = 2.90, ν ∈ [0.485, 0.500] | 2.96 µm | 146 a² | **154** (103) a² | **0.95** | 26.1–27.2 a | **31.5** (26.1) a | 0.83–0.86 |
+| n = 3.30, ν ∈ [0.460, 0.500] | 5.17 µm | 163 a² | **189** (101) a² | **0.86** | 27.4–28.6 a | **34.2** (25.8) a | 0.80–0.84 |
+| n = 2.90, ν ∈ [0.485, 0.500] | 3.24 µm | 146 a² | **158** (103) a² | **0.93** | 26.1–27.2 a | **31.9** (26.1) a | 0.82–0.85 |
+
+(Numbers re-baselined 2026-08-25: harmonized external g files + estimator-matched σ²_dif.
+Vs the previous table: mid-band ℓ* up ~9 % for both n — the new g is slightly more negative —
+which moves σ²_dif by +2–3 % and d_dif by ~+1 %; the estimator matching takes σ²_dif down
+~1 %. Old committed n = 3.30 medians for reference: ℓ* = 4.74 µm, z₀ = 6.92 µm,
+σ²_dif = 185 a², d_dif = 33.8 a.)
 
 Two things this buys that the guessed band could not:
 
-1. **σ² agrees with diffusion to 5–11 %** with nothing tuned — and, more tellingly, the
+1. **σ² agrees with diffusion to 7–14 %** with nothing tuned — and, more tellingly, the
    *measured* σ²(ν) **rises with ν following ℓ*(ν)** above the gap, tracking the red curve bin
    for bin (n = 3.30 over 0.44–0.50, n = 2.90 over 0.41–0.50). A flat band cannot make or
    test that statement. This also retires the "unexplained +6 % d(ν) slope" of §5 as a
    candidate anomaly: an ℓ*-driven baseline slopes the same way.
-2. **d sits 15–19 % *below* the same prediction** while σ² sits within 5–11 % of it. Both are
+2. **d sits 15–20 % *below* the same prediction** while σ² sits within 7–14 % of it. Both are
    computed from the same profile through the same estimators, so this is a **shape**
    statement, not a level one: at matched second moment the measured exit profile is more
    peaked than the diffusive one (speckle-corrected d is smaller ⇒ smaller A_eff ⇒ more power
    concentrated, with the residual second moment carried by a broader skirt). Below ν ≈ 0.40
-   the measured σ² runs well *above* the prediction where the rim fraction is also climbing —
-   read that as aperture/edge contamination, not transport.
+   the measured σ² runs well *above* the prediction — audited 2026-08-25: that is **floor
+   power at the spectral edge** (ρ > 30a holds ~17% of the power but ~57% of M2 at ν = 0.33),
+   a measurement artifact, not transport and not a baseline error (§11 audit note).
 
 **Caveats to carry.** g is Born/RDG single-scattering (the generator warns |m−1| ≫ 0.1), so
 ℓ*(ν) is indicative rather than exact; σ²_dif is dominated by L and z₀, so the *level* is robust
@@ -561,9 +768,10 @@ carries their measurement noise (visible as small jitter, larger for the 1700-po
 file). And the MG effective index is a model choice: Bruggeman would give n_eff ≈ 1.36 / 1.31
 and a ~20 % higher z₀ — the volume-ε value (n_eff ≈ 1.79, z₀ = 4ℓ*) remains excluded by §3.
 
-**Measured, single realization — the rest.** Rim power at ρ > 45a is 0.09 % mid-band but
-**49 % median inside the MPB gap** for n = 3.30, saturating near 1 over ν ≈ 0.39–0.43: inside
-the gap the exit signal is floor/rim-dominated and *neither* estimator is a beam width. Those
+**Measured, single realization — the rest.** Inside the gap the exit signal is
+floor-dominated (the 2026-07/08 audits measured rim power ρ > 45a at ~49 % median in-gap for
+n = 3.30; the per-bin rim diagnostic itself was removed from the notebook 2026-08-25) and
+*neither* estimator is a beam width there. Those
 bins are plotted in a muted colour and labelled so; no threshold fit decides it — the shaded
 MPB band is the statement. For n = 2.90, which does have T(ν), the measured transmission
 minimum falls inside the same shaded MPB band — an independent confirmation of the window.
@@ -574,8 +782,8 @@ attenuation/confinement scale, **not ξ** (absorption and Bragg attenuation both
 **What the notebook now contains (8 cells).** Figure 1 σ²(ν), Figure 2 d(ν) — each with the
 MPB gap shaded, the ν-resolved diffusive curve from the measured ℓ*(ν) plus its
 z₀ = 0 lower bound (§11.1), and a shared-x lower panel carrying the
-measured T(ν) (or the explicit "no transmission run for this n" note) plus the rim fraction on
-a twin axis as the aperture-saturation warning; the interactive ipywidgets exit-face map,
+measured T(ν) only (or the explicit "no transmission run for this n" note; the rim-fraction
+twin axis was removed 2026-08-25); the interactive ipywidgets exit-face map,
 whose locator strip now plots the *measured* T(ν) instead of the retired `S_rel`; and a new
 **(x, y, ν) exit-face speckle point cloud** (plotly), the CW analogue of the (x, y, t) cloud
 in §8's notebook.
