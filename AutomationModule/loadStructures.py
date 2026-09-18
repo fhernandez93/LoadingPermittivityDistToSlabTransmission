@@ -133,12 +133,17 @@ class loadAndRunStructure:
          
         # space between slabs and PML
         self.spacing = self.dPML * self.lambda_range[0]
-        self.t_slab=box_size*scaling
+        if type(box_size) == list:
+            self.t_slab_x = box_size[0]*scaling
+            self.t_slab_y = box_size[1]*scaling
+            self.t_slab_z = box_size[2]*scaling
+        else:    
+            self.t_slab=box_size*scaling
 
-        #t_slab in all different directions 
-        self.t_slab_x = (self.t_slab*cut_condition if direction=="x" else self.t_slab)*(self.multiplication_factor if self.multiplicate_size else 1)
-        self.t_slab_y = (self.t_slab*cut_condition if direction=="y" else self.t_slab)*(self.multiplication_factor if self.multiplicate_size else 1)
-        self.t_slab_z = self.t_slab*cut_condition if direction=="z" else self.t_slab
+            #t_slab in all different directions 
+            self.t_slab_x = (self.t_slab*cut_condition if direction=="x" else self.t_slab)*(self.multiplication_factor if self.multiplicate_size else 1)
+            self.t_slab_y = (self.t_slab*cut_condition if direction=="y" else self.t_slab)*(self.multiplication_factor if self.multiplicate_size else 1)
+            self.t_slab_z = self.t_slab*cut_condition if direction=="z" else self.t_slab
        
         self.sim_size = self.Lx, self.Ly, self.Lz = (
                                       ((self.t_slab_x)/(cut_condition if not cut_cell else 1)+self.spacing*2 if direction == "x" else self.t_slab_x),

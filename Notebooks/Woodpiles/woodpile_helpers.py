@@ -300,46 +300,49 @@ def enumerate_segments(rods, box_size, d, tol=1e-9, interior_only=True):
     return seg
 
 
-def _segments_conflict(cand, acc, rods, d, tol=1e-6):
+def _segments_conflict(cand, acc, rods, d, forbid_crossing=False, tol=1e-6):
     """
-    Non-overlap rule between one candidate segment and the accepted ones (vectorized).
-    Two segments conflict when they
-      * lie on the same rod and are the same or adjacent segments (share an endpoint),
-      * lie on neighbouring rods (distance d) of the same layer and overlap along the axis,
-      * lie in adjacent layers and cross (touch) each other.
-    Segments two or more layers apart never conflict.
+    Overlap rule between one candidate segment and the accepted ones (vectorized).
+    Two defects "overlap" (Aeby et al.: "two defects cannot overlap") only when they are the SAME
+    segment, which plain sampling without replacement already excludes.  Adjacent segments of one
+    rod (they merge into one longer defect, cf. the 2-3 segment bulges of Figure 1d) and segments
+    on neighbouring parallel rods (Figure 3: "when two defects are adjacent") are allowed.
+    forbid_crossing=True additionally rejects a candidate whose segment crosses (touches) an
+    accepted segment of an adjacent layer, where the elliptical rods physically overlap (a > h/2).
     """
-    if len(acc) == 0:
+    if len(acc) == 0 or not forbid_crossing:
         return False
     rc = rods[cand['rod']]
     ra = rods[acc['rod']]
-    same_rod = acc['rod'] == cand['rod']
-    same_layer = ra['layer'] == rc['layer']
     adj_layer = np.abs(ra['layer'] - rc['layer']) == 1
-
-    c1 = same_rod & (np.abs(acc['j'] - cand['j']) <= 1)
-    neighbour_rod = same_layer & (~same_rod) & (np.abs(ra['position'] - rc['position']) <= d * (1 + tol))
-    c2 = neighbour_rod & (cand['s0'] < acc['s1'] - tol) & (acc['s0'] < cand['s1'] - tol)
-    c3 = adj_layer & (ra['position'] >= cand['s0'] - tol) & (ra['position'] <= cand['s1'] + tol) \
-         & (rc['position'] >= acc['s0'] - tol) & (rc['position'] <= acc['s1'] + tol)
-    return bool(np.any(c1 | c2 | c3))
+    crossing = adj_layer & (ra['position'] >= cand['s0'] - tol) & (ra['position'] <= cand['s1'] + tol)                & (rc['position'] >= acc['s0'] - tol) & (rc['position'] <= acc['s1'] + tol)
+    return bool(np.any(crossing))
 
 
-def place_defects(rods, segments, n_defects, d, rng):
-    """Uniformly random choice of n_defects segments without replacement, honouring the non-overlap rule."""
+def place_defects(rods, segments, n_defects, d, rng, forbid_crossing=False):
+    """
+    Uniformly random choice of n_defects distinct segments (sampling without replacement).
+    With forbid_crossing=True, segments crossing an already accepted defect of an adjacent
+    layer are rejected (rejection sampling in random order).
+    """
     if n_defects <= 0:
         return segments[:0]
     order = rng.permutation(len(segments))
+    if not forbid_crossing:
+        if n_defects > len(segments):
+            raise ValueError(f"n_defects = {n_defects} exceeds the {len(segments)} candidate segments; "
+                             f"lower n_defects/defect_density")
+        return segments[np.sort(order[:n_defects])]
     accepted = segments[:0]
     for idx in order:
         if len(accepted) >= n_defects:
             break
-        c = segments[idx]
-        if not _segments_conflict(c, accepted, rods, d):
+        if not _segments_conflict(segments[idx], accepted, rods, d, forbid_crossing=True):
             accepted = np.append(accepted, segments[idx:idx + 1])
     if len(accepted) < n_defects:
-        raise ValueError(f"could only place {len(accepted)} of {n_defects} non-overlapping defects "
-                         f"({len(segments)} candidate segments); lower n_defects/defect_density")
+        raise ValueError(f"could only place {len(accepted)} of {n_defects} non-crossing defects "
+                         f"({len(segments)} candidate segments); lower n_defects/defect_density "
+                         f"or set forbid_crossing=False")
     return accepted
 
 
@@ -429,6 +432,7 @@ def create_woodpile_dist(
     progress_every=None,
     verbose=False,
     segment_ref='below',
+    forbid_crossing=False,
     ff_tolerance=1e-3,
     ff_max_iter=25,
     save_rods=False,
@@ -465,9 +469,11 @@ def create_woodpile_dist(
     into pieces before voxelization), so for kappa < 0 no trace of the regular rod is left inside
     the segment while the crossing rods of the neighbouring layers stay intact.
     Defects are drawn uniformly at random without replacement from all complete segments in the
-    box, subject to the non-overlap rule: no two defects on the same or adjacent segments of a
-    rod, on overlapping segments of neighbouring rods of the same layer, or on crossing
-    (touching) segments of adjacent layers.  n_defects = round(defect_density * Lx*Ly*Lz) when
+    box ("two defects cannot overlap" = no segment is chosen twice).  Adjacent segments of one rod
+    may both be defects and then form one longer defect (the paper's Figure 1d shows bulges of
+    2-3 segments); the defects table still lists one row per segment.  forbid_crossing=True
+    additionally rejects defects on crossing (touching) segments of adjacent layers, where the
+    overlapping rods would merge.  n_defects = round(defect_density * Lx*Ly*Lz) when
     defect_density is given.
 
     Returns
@@ -548,7 +554,7 @@ def create_woodpile_dist(
     # actual (post-rounding) defect density; 0.0 for a defect-free woodpile
     defect_density = n_defects / (Lx * Ly * Lz)
     segments = enumerate_segments(rods, box, d)
-    chosen = place_defects(rods, segments, n_defects, d, rng) if n_defects > 0 else segments[:0]
+    chosen = place_defects(rods, segments, n_defects, d, rng, forbid_crossing) if n_defects > 0 else segments[:0]
 
     if verbose:
         print(f"[woodpile] {len(z_layers)} layers (h = {h:.4f}), {len(rods)} rods, "
@@ -573,7 +579,7 @@ def create_woodpile_dist(
     info = dict(
         minor_radius=b, major_radius=a, aspect_ratio=s, d=d, dz=dz, layer_spacing=h,
         n_layers=len(z_layers), z_layers=z_layers, n_rods=len(rods), n_segments=len(segments),
-        n_defects=len(chosen), kappa=kappa,
+        n_defects=len(chosen), kappa=kappa, forbid_crossing=forbid_crossing,
         ff=ff, ff_perfect=ff_perfect, ff_analytic=ff_analytic,
         ff_defect_estimate=ff_perfect + len(chosen) * kappa * seg_volume / (Lx * Ly * Lz),
         ff_target=filling_fraction, ff_residual=ff_residual,
@@ -586,9 +592,9 @@ def create_woodpile_dist(
         os.makedirs(dir, exist_ok=True)
         seed_str = "none" if seed is None else str(seed)
         tag = f"woodpile_d{d:.2f}_kappa{info['kappa']:+.2f}_rho{defect_density:.3f}_seed{seed_str}"
-        AM.create_hdf5_from_dict({"epsilon": eps}, rf"{dir}/n_{np.sqrt(permittivity):.2f}_ff_{ff:.4f}.h5")
+        # AM.create_hdf5_from_dict({"epsilon": eps}, rf"{dir}/n_{np.sqrt(permittivity):.2f}_ff_{ff:.4f}.h5")
         AM.create_hdf5_from_dict(
-            {**tables_to_dict(rods, defects),
+            {"epsilon": eps, **tables_to_dict(rods, defects),
              "params": {"box_size": np.array(box_size), "grid_size": np.array(grid_size), "d": d, "dz": dz,
                         "minor_radius": info['minor_radius'], "major_radius": info['major_radius'],
                         "aspect_ratio": aspect_ratio, "permittivity": permittivity, "background_permittivity": background_permittivity,
