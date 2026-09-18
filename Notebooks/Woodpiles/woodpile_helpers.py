@@ -7,9 +7,12 @@ Voxelized woodpile photonic crystal with controlled rod-segment defects
 Main entry point: create_woodpile_dist(...) -> eps, rods, defects, ff, info
 Companion notebook: create_woodpile_dist.ipynb
 
-The voxelization core (padded AABB per rod, circular membership test in the unwarped space
-z' = z / s, global z-scale s = aspect_ratio) mirrors create_permittivity_grid_penlike from
-LSU Project/20251001_LSU_Localization_Tests/20250903_create_h5_from_ends.ipynb.
+The membership test (circular test in the unwarped space z' = z / s, global z-scale
+s = aspect_ratio) is the one of create_permittivity_grid_penlike from
+LSU Project/20251001_LSU_Localization_Tests/20250903_create_h5_from_ends.ipynb (voxelize_rod).
+Because woodpile rods are axis-aligned the test is separable, so the grid is built from 2-D
+cross-section masks broadcast along the rod axis (voxelize_rod_axis / _layer_masks) and the
+filling-fraction bisection never touches the 3-D grid (perfect_voxel_ff).
 """
 import os
 import sys
@@ -22,7 +25,7 @@ sys.path.append(os.path.abspath(r'H:\codes\tidy3d'))
 import AutomationModule as AM
 
 __all__ = ['create_woodpile_dist', 'build_woodpile_rods', 'enumerate_segments', 'place_defects',
-           'voxelize_woodpile', 'voxelize_rod', 'grid_coordinates', 'tables_to_dict', 'show_slice',
+           'voxelize_woodpile', 'voxelize_rod', 'voxelize_rod_axis', 'perfect_voxel_ff', 'grid_coordinates', 'tables_to_dict', 'show_slice',
            'ROD_DTYPE', 'DEFECT_DTYPE']
 
 
@@ -107,6 +110,111 @@ def voxelize_rod(eps, coords, p1, p2, b, s, value):
         sub = eps[sl[0], sl[1], sl[2]]     # view -> in-place write
         sub[mask] = value
     return n
+
+
+def _ellipse_mask_2d(c_perp, c_z, pos, z0, b, s):
+    """
+    2-D cross-section mask of an axis-aligned rod: voxel centres (perp, z) inside the ellipse of
+    semi-axes b (in-plane) and s*b (along z) centred at (pos, z0).  Returns (slice_perp, slice_z, mask)
+    restricted to the padded bounding box.  Same test as voxelize_rod in the unwarped space z' = z/s,
+    which for an axis-aligned rod reduces to (perp - pos)^2 + (z/s - z0/s)^2 <= b^2.
+    """
+    pad = b * max(1.0, s)
+    sl = []
+    for c, centre in ((c_perp, pos), (c_z, z0)):
+        dx = float(c[1] - c[0]) if len(c) > 1 else 0.0
+        i0 = max(int(np.searchsorted(c, centre - pad - dx, side='left')), 0)
+        i1 = min(int(np.searchsorted(c, centre + pad + dx, side='right')), len(c))
+        sl.append(slice(i0, i1))
+    if sl[0].stop <= sl[0].start or sl[1].stop <= sl[1].start:
+        return sl[0], sl[1], None
+    rP = c_perp[sl[0]] - pos
+    rZ = c_z[sl[1]] / s - z0 / s
+    mask = (rP * rP)[:, None] + (rZ * rZ)[None, :] <= b * b
+    return sl[0], sl[1], mask
+
+
+def voxelize_rod_axis(eps, coords, orientation, s0, s1, pos, z0, b, s, value):
+    """
+    Fast path of voxelize_rod for a rod parallel to x (orientation 'x') or y ('y') running from
+    s0 to s1 along its axis at in-plane position `pos` and height z0.  The membership test is
+    separable, so only a 2-D ellipse mask is built and broadcast along the rod axis (no 3-D meshgrid).
+    Returns the number of voxels written.
+    """
+    if b <= 0.0 or s1 <= s0:
+        return 0
+    ax = 0 if orientation == 'x' else 1
+    # inclusive clamp expressed exactly like the t-test of voxelize_rod: t = c - s0, 0 <= t <= L
+    t = coords[ax] - s0                                    # monotone, so searchsorted applies
+    sl_ax = slice(int(np.searchsorted(t, 0.0, side='left')), int(np.searchsorted(t, s1 - s0, side='right')))
+    if sl_ax.stop <= sl_ax.start:
+        return 0
+    sl_p, sl_z, mask = _ellipse_mask_2d(coords[1 - ax], coords[2], pos, z0, b, s)
+    if mask is None:
+        return 0
+    n_sec = int(np.count_nonzero(mask))
+    if n_sec == 0:
+        return 0
+    if ax == 0:
+        sub = eps[sl_ax, sl_p, sl_z]                       # (n_ax, n_perp, n_z) view
+    else:
+        sub = np.moveaxis(eps[sl_p, sl_ax, sl_z], 1, 0)    # view with the rod axis first
+    sub[:, mask] = value                                   # broadcast along the axis, in place
+    return n_sec * (sl_ax.stop - sl_ax.start)
+
+
+def _layer_masks(rods, coords, s, skip=()):
+    """
+    Union cross-section masks of all full-length rods: Mx (Ny, Nz) for x-rods, My (Nx, Nz) for
+    y-rods.  A voxel (i, j, k) of the perfect crystal is filled iff Mx[j, k] or My[i, k].
+    Rods whose index is in `skip` (e.g. rods carrying defects) are left out.
+    """
+    Nx, Ny, Nz = (len(c) for c in coords)
+    Mx = np.zeros((Ny, Nz), dtype=bool)
+    My = np.zeros((Nx, Nz), dtype=bool)
+    for i, rod in enumerate(rods):
+        if i in skip:
+            continue
+        b = float(rod['minor_radius'])
+        if b <= 0.0:
+            continue
+        if rod['orientation'] == 'x':
+            sl_p, sl_z, m = _ellipse_mask_2d(coords[1], coords[2], rod['position'], rod['z'], b, s)
+            if m is not None:
+                Mx[sl_p, sl_z] |= m
+        else:
+            sl_p, sl_z, m = _ellipse_mask_2d(coords[0], coords[2], rod['position'], rod['z'], b, s)
+            if m is not None:
+                My[sl_p, sl_z] |= m
+    return Mx, My
+
+
+def _rods_span_box(rods, box_size, tol=1e-9):
+    Lx, Ly, Lz = _as_triple(box_size, float)
+    L_par = np.where(rods['orientation'] == 'x', Lx, Ly)
+    lo = np.where(rods['orientation'] == 'x', rods['x1'], rods['y1'])
+    hi = np.where(rods['orientation'] == 'x', rods['x2'], rods['y2'])
+    return bool(np.all(np.abs(lo + L_par / 2) <= tol) and np.all(np.abs(hi - L_par / 2) <= tol))
+
+
+def perfect_voxel_ff(rods, box_size, grid_size, aspect_ratio):
+    """
+    Voxel filling fraction of the defect-free woodpile WITHOUT building the 3-D grid.
+    All rods span the full box along their axis, so per z-slab k the filled voxels are
+    Nx*cx[k] + Ny*cy[k] - cx[k]*cy[k] with cx[k] = #j: Mx[j, k], cy[k] = #i: My[i, k]
+    (inclusion-exclusion of the x-rod and y-rod unions).  Identical to mean(eps != background)
+    of voxelize_woodpile for the same rods; O(Ny*Nz + Nx*Nz) instead of O(Nx*Ny*Nz).
+    """
+    if not _rods_span_box(rods, box_size):
+        raise ValueError("perfect_voxel_ff requires rods spanning the full box along their axis")
+    grid = _as_triple(grid_size, int)
+    coords = grid_coordinates(box_size, grid)
+    Mx, My = _layer_masks(rods, coords, float(aspect_ratio))
+    Nx, Ny, Nz = grid
+    cx = Mx.sum(axis=0, dtype=np.int64)
+    cy = My.sum(axis=0, dtype=np.int64)
+    filled = int(np.sum(Nx * cx + Ny * cy - cx * cy))
+    return filled / float(Nx * Ny * Nz)
 
 
 def build_woodpile_rods(box_size, d, dz, minor_radius, aspect_ratio=2.8, layer_offset=0.0,
@@ -261,7 +369,15 @@ def _endpoints(rod, s0, s1):
 
 def voxelize_woodpile(rods, box_size, grid_size, permittivity, background_permittivity,
                       aspect_ratio, defect_segments=None, kappa=0.0, progress_every=None):
-    """Voxelize the rod list (plus optional defect segments) into a float32 permittivity grid."""
+    """
+    Voxelize the rod list (plus optional defect segments) into a float32 permittivity grid.
+
+    Rods are axis-aligned, so the membership test is separable: defect-free full-length rods are
+    stamped through their union cross-section masks (one (Ny, Nz) mask for all x-rods, one (Nx, Nz)
+    mask for all y-rods) broadcast along the rod axis; rods carrying defects are split into pieces
+    and each piece is stamped with voxelize_rod_axis.  Voxel-for-voxel identical to calling
+    voxelize_rod on every piece, but never builds a 3-D meshgrid.
+    """
     grid = _as_triple(grid_size, int)
     coords = grid_coordinates(box_size, grid)
     eps = np.full(grid, background_permittivity, dtype=np.float32)
@@ -269,16 +385,29 @@ def voxelize_woodpile(rods, box_size, grid_size, permittivity, background_permit
     scale = np.sqrt(1.0 + kappa)          # both semi-axes scale so that the AREA scales by (1 + kappa)
     if defect_segments is None:
         defect_segments = np.zeros(0, dtype=[('rod', 'i4'), ('j', 'i4'), ('s0', 'f8'), ('s1', 'f8')])
-    for i, rod in enumerate(rods):
-        if progress_every and i % progress_every == 0:
-            print(f"[voxelize] rod {i} / {len(rods)}")
+    with_defects = set(int(r) for r in np.unique(defect_segments['rod']))
+
+    # (1) all defect-free rods at once through the union masks
+    if _rods_span_box(rods, box_size):
+        Mx, My = _layer_masks(rods, coords, s, skip=with_defects)
+        eps[:, Mx] = permittivity
+        np.moveaxis(eps, 1, 0)[:, My] = permittivity
+        plain = ()
+    else:                                  # generic rod list: stamp rod by rod
+        plain = (i for i in range(len(rods)) if i not in with_defects)
+
+    # (2) rods carrying defects (and any non-spanning rods) piece by piece
+    todo = sorted(with_defects) + list(plain)
+    for n, i in enumerate(todo):
+        if progress_every and n % progress_every == 0:
+            print(f"[voxelize] rod {n} / {len(todo)} (piecewise)")
+        rod = rods[i]
         b = float(rod['minor_radius'])
         on_rod = defect_segments[defect_segments['rod'] == i]
         for s0, s1, kind in _rod_pieces(rod, on_rod, box_size):
-            p1, p2 = _endpoints(rod, s0, s1)
             bb = b if kind == 'rod' else b * scale
             if bb > 0.0:
-                voxelize_rod(eps, coords, p1, p2, bb, s, permittivity)
+                voxelize_rod_axis(eps, coords, rod['orientation'], s0, s1, rod['position'], rod['z'], bb, s, permittivity)
     return eps, coords
 
 
@@ -375,9 +504,9 @@ def create_woodpile_dist(
         raise ValueError("give exactly one of minor_radius or filling_fraction")
 
     def perfect_ff(b):
+        # exact voxel ff of the defect-free crystal from the 2-D cross-section masks (no 3-D grid)
         rods_b, _ = build_woodpile_rods(box, d, dz, b, s, layer_offset, segment_ref)
-        eps_b, _ = voxelize_woodpile(rods_b, box, grid, permittivity, background_permittivity, s)
-        return float(np.mean(eps_b != np.float32(background_permittivity)))
+        return perfect_voxel_ff(rods_b, box, grid, s)
 
     ff_residual = None
     if filling_fraction is not None:
