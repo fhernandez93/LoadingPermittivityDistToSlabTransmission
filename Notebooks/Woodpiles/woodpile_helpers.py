@@ -436,6 +436,7 @@ def create_woodpile_dist(
     ff_tolerance=1e-3,
     ff_max_iter=25,
     save_rods=False,
+    add_eps_dist=True,
     dir_save="./Structures",
 ):
     """
@@ -476,9 +477,14 @@ def create_woodpile_dist(
     overlapping rods would merge.  n_defects = round(defect_density * Lx*Ly*Lz) when
     defect_density is given.
 
+    add_eps_dist=False drops the voxel grid from the output: eps is returned as None and the
+    'epsilon' dataset is left out of the HDF5 file (rods/defects tables and params are still
+    written).  The grid is still voxelized internally to measure ff.
+
     Returns
     -------
-    eps      : (Nx, Ny, Nz) float32 permittivity grid (background first, rods overwrite).
+    eps      : (Nx, Ny, Nz) float32 permittivity grid (background first, rods overwrite),
+               or None when add_eps_dist=False.
     rods     : structured array, one entry per rod: endpoints x1..z2, layer, orientation ('x'/'y'),
                in-plane position, z, minor_radius, major_radius, seg_origin.
     defects  : structured array, one entry per defect: segment centre x,y,z, endpoints, layer,
@@ -594,7 +600,7 @@ def create_woodpile_dist(
         tag = f"woodpile_d{d:.2f}_kappa{info['kappa']:+.2f}_rho{defect_density:.3f}_seed{seed_str}"
         # AM.create_hdf5_from_dict({"epsilon": eps}, rf"{dir}/n_{np.sqrt(permittivity):.2f}_ff_{ff:.4f}.h5")
         AM.create_hdf5_from_dict(
-            {"epsilon": eps, **tables_to_dict(rods, defects),
+            {**({"epsilon": eps} if add_eps_dist else {}), **tables_to_dict(rods, defects),
              "params": {"box_size": np.array(box_size), "grid_size": np.array(grid_size), "d": d, "dz": dz,
                         "minor_radius": info['minor_radius'], "major_radius": info['major_radius'],
                         "aspect_ratio": aspect_ratio, "permittivity": permittivity, "background_permittivity": background_permittivity,
@@ -604,6 +610,8 @@ def create_woodpile_dist(
     if verbose:
         print(f"[woodpile] b = {b:.4f}, a = {a:.4f}  ->  ff(voxel) = {ff:.4f}, "
               f"ff(defect-free) = {ff_perfect:.4f}, ff(analytic, no overlap) = {ff_analytic:.4f}")
+    if not add_eps_dist:
+        eps = None
     return eps, rods, defects, ff, info
 
 
