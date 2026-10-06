@@ -25,7 +25,7 @@ sys.path.append(os.path.abspath(r'H:\codes\tidy3d'))
 import AutomationModule as AM
 
 __all__ = ['create_woodpile_dist', 'build_woodpile_rods', 'enumerate_segments', 'place_defects',
-           'voxelize_woodpile', 'voxelize_rod', 'voxelize_rod_axis', 'perfect_voxel_ff', 'grid_coordinates', 'tables_to_dict', 'show_slice',
+           'segment_centres', 'stratify_equal_mass', 'structure_factor', 'voxelize_woodpile', 'voxelize_rod', 'voxelize_rod_axis', 'perfect_voxel_ff', 'grid_coordinates', 'tables_to_dict', 'show_slice',
            'ROD_DTYPE', 'DEFECT_DTYPE']
 
 
@@ -319,14 +319,117 @@ def _segments_conflict(cand, acc, rods, d, forbid_crossing=False, tol=1e-6):
     return bool(np.any(crossing))
 
 
-def place_defects(rods, segments, n_defects, d, rng, forbid_crossing=False):
+def segment_centres(rods, segments):
+    """(N, 3) centres of the segments (rod, j, s0, s1) of enumerate_segments."""
+    r = rods[segments['rod']]
+    mid = 0.5 * (segments['s0'] + segments['s1'])
+    is_x = r['orientation'] == 'x'
+    return np.column_stack([np.where(is_x, mid, r['position']), np.where(is_x, r['position'], mid), r['z']])
+
+
+def stratify_equal_mass(points, n_cells, rng, bounds=None):
     """
-    Uniformly random choice of n_defects distinct segments (sampling without replacement).
+    Partition `points` (N, 3) into n_cells compact cells holding (almost) the same number of points:
+    k-d tree that recursively cuts the cell along its longest side at the point quantile that gives
+    each half a share of points proportional to the number of cells it will hold (ties on the cut plane
+    are broken by the other two coordinates).  For an odd cell count the larger half is chosen at random.
+    bounds = (lo, hi) of the root cell (default: bounding box of the points); the geometric cell bounds,
+    not the point spread, decide the cut axis, so cells stay near-cubic on an anisotropic point lattice.
+    Returns a list of n_cells index arrays into `points`; leaf sizes differ by at most a few points.
+    """
+    points = np.asarray(points, dtype=np.float64)
+    N = len(points)
+    if not 1 <= n_cells <= N:
+        raise ValueError(f"n_cells = {n_cells} must be between 1 and the number of points ({N})")
+    if bounds is None:
+        bounds = (points.min(axis=0), points.max(axis=0))
+    lo0 = np.asarray(bounds[0], dtype=np.float64)
+    hi0 = np.asarray(bounds[1], dtype=np.float64)
+    leaves = []
+    stack = [(np.arange(N), n_cells, lo0, hi0)]
+    while stack:
+        idx, m, lo, hi = stack.pop()
+        if m == 1:
+            leaves.append(idx)
+            continue
+        ax = int(np.argmax(hi - lo))
+        o1, o2 = [k for k in range(3) if k != ax]
+        P = points[idx]
+        order = np.lexsort((P[:, o2], P[:, o1], P[:, ax]))           # primary key: cut axis
+        m_lo = m // 2 + (int(rng.integers(2)) if m % 2 else 0)
+        n_lo = int(round(len(idx) * m_lo / m))
+        n_lo = min(max(n_lo, m_lo), len(idx) - (m - m_lo))           # every leaf keeps >= 1 point
+        cut = 0.5 * (P[order[n_lo - 1], ax] + P[order[n_lo], ax])
+        hi_lo = hi.copy(); hi_lo[ax] = cut
+        lo_hi = lo.copy(); lo_hi[ax] = cut
+        stack.append((idx[order[:n_lo]], m_lo, lo, hi_lo))
+        stack.append((idx[order[n_lo:]], m - m_lo, lo_hi, hi))
+    return leaves
+
+
+def _place_defects_hyperuniform(rods, segments, n_defects, d, rng, forbid_crossing=False, box_size=None):
+    """
+    Hyperuniform choice of n_defects distinct segments: the candidate segment centres are split into
+    n_defects compact cells of equal candidate count (stratify_equal_mass) and one segment is drawn
+    uniformly inside every cell (stratified / "one point per cell" sampling, a uniformly randomized
+    lattice on an equal-mass partition).  The number of defects in any window then fluctuates only
+    through the cells cut by the window boundary, so the number variance grows like the window
+    surface and S(k) ~ k^2 as k -> 0 (class-I hyperuniform), instead of S(k) = 1 for random placement.
+    With forbid_crossing=True the cells are visited in random order and the first non-crossing
+    candidate of the cell (in random order) is taken; if every candidate of the cell crosses an accepted
+    defect (only at high candidate fractions, n_defects/len(segments) >~ 0.15), the unused non-crossing
+    candidate closest to the cell centroid is taken instead (small displacement, typically <~ the mean spacing).
+    """
+    if n_defects > len(segments):
+        raise ValueError(f"n_defects = {n_defects} exceeds the {len(segments)} candidate segments; "
+                         f"lower n_defects/defect_density")
+    pts = segment_centres(rods, segments)
+    bounds = None
+    if box_size is not None:
+        box = np.asarray(_as_triple(box_size, float))
+        bounds = (np.minimum(-box / 2.0, pts.min(axis=0)), np.maximum(box / 2.0, pts.max(axis=0)))
+    cells = stratify_equal_mass(pts, n_defects, rng, bounds=bounds)
+    if not forbid_crossing:
+        pick = np.array([cell[rng.integers(len(cell))] for cell in cells], dtype=np.int64)
+        return segments[np.sort(pick)]
+    accepted = segments[:0]
+    used = np.zeros(len(segments), dtype=bool)
+    for c in rng.permutation(len(cells)):
+        cell = cells[c]
+        for idx in cell[rng.permutation(len(cell))]:
+            if not used[idx] and not _segments_conflict(segments[idx], accepted, rods, d, forbid_crossing=True):
+                break
+        else:                              # whole cell blocked (or taken by earlier fallbacks): nearest free candidate to its centroid
+            dist2 = np.sum((pts - pts[cell].mean(axis=0)) ** 2, axis=1)
+            for idx in np.argsort(dist2, kind='stable'):
+                if not used[idx] and not _segments_conflict(segments[idx], accepted, rods, d, forbid_crossing=True):
+                    break
+            else:
+                raise ValueError(f"could only place {len(accepted)} of {n_defects} non-crossing defects "
+                                 f"({len(segments)} candidate segments); lower n_defects/defect_density "
+                                 f"or set forbid_crossing=False")
+        used[idx] = True
+        accepted = np.append(accepted, segments[idx:idx + 1])
+    return np.sort(accepted, order=['rod', 'j'])
+
+
+def place_defects(rods, segments, n_defects, d, rng, forbid_crossing=False, distribution='random',
+                  box_size=None):
+    """
+    Choice of n_defects distinct segments (sampling without replacement).
+    distribution='random': uniformly random choice (Poisson-like, S(k) = 1 at small k).
+    distribution='hyperuniform': one segment per cell of an equal-mass partition of the candidates
+    (see _place_defects_hyperuniform); box_size, if given, sets the root cell of the partition.
     With forbid_crossing=True, segments crossing an already accepted defect of an adjacent
-    layer are rejected (rejection sampling in random order).
+    layer are rejected (random: rejection sampling in random order; hyperuniform: per cell, with a
+    fallback to the nearest free candidate).
     """
     if n_defects <= 0:
         return segments[:0]
+    if distribution == 'hyperuniform':
+        return _place_defects_hyperuniform(rods, segments, n_defects, d, rng, forbid_crossing, box_size)
+    if distribution != 'random':
+        raise ValueError("distribution must be 'random' or 'hyperuniform'")
     order = rng.permutation(len(segments))
     if not forbid_crossing:
         if n_defects > len(segments):
@@ -433,6 +536,7 @@ def create_woodpile_dist(
     verbose=False,
     segment_ref='below',
     forbid_crossing=False,
+    defect_distribution='random',
     ff_tolerance=1e-3,
     ff_max_iter=25,
     save_rods=False,
@@ -477,6 +581,20 @@ def create_woodpile_dist(
     overlapping rods would merge.  n_defects = round(defect_density * Lx*Ly*Lz) when
     defect_density is given.
 
+    defect_distribution selects how the defect segments are spread over the box:
+    * 'random' (default): the uniformly random choice above (Poisson-like, S(k) -> 1 as k -> 0).
+      Same random stream as before, so a given seed reproduces earlier structures.
+    * 'hyperuniform': the candidate segments are split into n_defects compact cells holding the same
+      number of candidates (k-d tree cut along the longest cell side, stratify_equal_mass) and one
+      segment is drawn uniformly at random inside every cell.  Every region of the box then holds
+      the expected number of defects up to its boundary cells: the number variance in a window
+      grows like its surface instead of its volume and S(k) ~ k^2 as k -> 0 (class-I hyperuniform),
+      while the defects stay disordered on the scale of the mean spacing (V/n_defects)^(1/3).
+      Exactly n_defects defects are placed (any n_defects <= number of candidates with forbid_crossing=False).
+      Check with structure_factor(np.column_stack([defects['x'], defects['y'], defects['z']]), box_size,
+      reference=segment_centres(rods, enumerate_segments(rods, box_size, d))); without `reference` the
+      edge deficit of the candidate set (no rods on the box faces) adds a k-independent offset to S.
+
     add_eps_dist=False drops the voxel grid from the output: eps is returned as None and the
     'epsilon' dataset is left out of the HDF5 file (rods/defects tables and params are still
     written).  The grid is still voxelized internally to measure ff.
@@ -514,6 +632,8 @@ def create_woodpile_dist(
 
     if (minor_radius is None) == (filling_fraction is None):
         raise ValueError("give exactly one of minor_radius or filling_fraction")
+    if defect_distribution not in ('random', 'hyperuniform'):
+        raise ValueError("defect_distribution must be 'random' or 'hyperuniform'")
 
     def perfect_ff(b):
         # exact voxel ff of the defect-free crystal from the 2-D cross-section masks (no 3-D grid)
@@ -560,11 +680,14 @@ def create_woodpile_dist(
     # actual (post-rounding) defect density; 0.0 for a defect-free woodpile
     defect_density = n_defects / (Lx * Ly * Lz)
     segments = enumerate_segments(rods, box, d)
-    chosen = place_defects(rods, segments, n_defects, d, rng, forbid_crossing) if n_defects > 0 else segments[:0]
+    chosen = (place_defects(rods, segments, n_defects, d, rng, forbid_crossing,
+                            distribution=defect_distribution, box_size=box)
+              if n_defects > 0 else segments[:0])
 
     if verbose:
         print(f"[woodpile] {len(z_layers)} layers (h = {h:.4f}), {len(rods)} rods, "
-              f"{len(segments)} complete segments, {len(chosen)} defects (kappa = {kappa})")
+              f"{len(segments)} complete segments, {len(chosen)} defects (kappa = {kappa}, "
+              f"{defect_distribution})")
 
     eps, coords = voxelize_woodpile(rods, box, grid, permittivity, background_permittivity, s,
                                     defect_segments=chosen, kappa=kappa, progress_every=progress_every)
@@ -586,6 +709,7 @@ def create_woodpile_dist(
         minor_radius=b, major_radius=a, aspect_ratio=s, d=d, dz=dz, layer_spacing=h,
         n_layers=len(z_layers), z_layers=z_layers, n_rods=len(rods), n_segments=len(segments),
         n_defects=len(chosen), kappa=kappa, forbid_crossing=forbid_crossing,
+        defect_distribution=defect_distribution,
         ff=ff, ff_perfect=ff_perfect, ff_analytic=ff_analytic,
         ff_defect_estimate=ff_perfect + len(chosen) * kappa * seg_volume / (Lx * Ly * Lz),
         ff_target=filling_fraction, ff_residual=ff_residual,
@@ -598,6 +722,8 @@ def create_woodpile_dist(
         os.makedirs(dir, exist_ok=True)
         seed_str = "none" if seed is None else str(seed)
         tag = f"woodpile_d{d:.2f}_kappa{info['kappa']:+.2f}_rho{defect_density:.3f}_seed{seed_str}"
+        if defect_distribution != 'random' and len(chosen) > 0:
+            tag += f"_{defect_distribution}"     # random files keep their old names
         # AM.create_hdf5_from_dict({"epsilon": eps}, rf"{dir}/n_{np.sqrt(permittivity):.2f}_ff_{ff:.4f}.h5")
         AM.create_hdf5_from_dict(
             {**({"epsilon": eps} if add_eps_dist else {}), **tables_to_dict(rods, defects),
@@ -605,6 +731,7 @@ def create_woodpile_dist(
                         "minor_radius": info['minor_radius'], "major_radius": info['major_radius'],
                         "aspect_ratio": aspect_ratio, "permittivity": permittivity, "background_permittivity": background_permittivity,
                         "kappa": info['kappa'], "defect_density": defect_density, "seed": -1 if seed is None else int(seed), "ff": ff,
+                        "defect_distribution": defect_distribution,
                         "ff_analytic": info['ff_analytic']}},
             rf"{dir}/n_{np.sqrt(permittivity):.2f}_ff_{ff:.4f}_{tag}_tables.h5")
     if verbose:
@@ -613,6 +740,67 @@ def create_woodpile_dist(
     if not add_eps_dist:
         eps = None
     return eps, rods, defects, ff, info
+
+
+def structure_factor(points, box_size, k_max=None, n_bins=40, reference=None, chunk=20000):
+    """
+    Angularly averaged structure factor S(k) = |sum_j exp(-i k.r_j)|^2 / N of a point pattern in the
+    box (centred at the origin), evaluated EXACTLY (direct sum, no binning) on the reciprocal grid of
+    the box k = 2 pi (mx/Lx, my/Ly, mz/Lz), k != 0.  On that grid the transform of a uniform box window
+    vanishes, so there is no forward-scattering peak: S -> 1 for uncorrelated (random) points and
+    S -> 0 as k -> 0 for hyperuniform ones.  Default k_max = 2 pi / a_mean (a_mean = (V/N)^(1/3), the
+    mean spacing); the cost is ~ N * (number of k vectors) and grows like k_max^3.
+    reference: optional (M, 3) points the pattern was drawn from (e.g. all candidate segment centres,
+    segment_centres(rods, enumerate_segments(rods, box, d))).  Their mean-density transform, scaled by
+    N/M, is subtracted from rho(k) before squaring, which removes the deterministic edge/window term of
+    a candidate set that does not fill the box uniformly (no complete segments at the in-plane faces).
+    Then S -> 1 - N/M for a random choice without replacement and S -> 0 as k -> 0 if hyperuniform.
+    The sum factorises per axis, so it is done as one complex matrix product per kz plane, over
+    chunks of `chunk` points (memory ~ chunk * (nx + ny + nz) * 16 bytes).
+    Returns k (bin centres), S (bin means, nan for empty bins), counts (k vectors per bin).
+    Use e.g. structure_factor(np.column_stack([defects['x'], defects['y'], defects['z']]), box).
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    N = len(pts)
+    box = np.asarray(_as_triple(box_size, float))
+    if k_max is None:
+        k_max = 2.0 * np.pi / (np.prod(box) / N) ** (1.0 / 3.0)
+    dk = 2.0 * np.pi / box
+    mx = np.arange(-int(k_max / dk[0]), int(k_max / dk[0]) + 1)
+    my = np.arange(-int(k_max / dk[1]), int(k_max / dk[1]) + 1)
+    mz = np.arange(0, int(k_max / dk[2]) + 1)                  # S(k) = S(-k): half space kz >= 0
+    if reference is not None:
+        ref = np.asarray(reference, dtype=np.float64)
+        pts_all = np.concatenate([pts, ref])
+        wt = np.concatenate([np.ones(N), np.full(len(ref), -N / len(ref))])   # rho(k) - (N/M) rho_ref(k)
+    else:
+        pts_all, wt = pts, np.ones(N)
+    kx, ky, kz = mx * dk[0], my * dk[1], mz * dk[2]
+    rho = np.zeros((len(mz), len(mx), len(my)), dtype=np.complex128)   # sum_j w_j e^{-i k.r_j}
+    for j0 in range(0, len(pts_all), chunk):                           # chunks bound the memory
+        p = pts_all[j0:j0 + chunk]
+        ex = np.exp(-1j * np.outer(p[:, 0], kx)) * wt[j0:j0 + chunk, None]
+        ey = np.exp(-1j * np.outer(p[:, 1], ky))
+        ez = np.exp(-1j * np.outer(p[:, 2], kz))
+        for m in range(len(mz)):
+            rho[m] += (ex * ez[:, m:m + 1]).T @ ey
+    k_edges = np.linspace(0.0, k_max, n_bins + 1)
+    sums = np.zeros(n_bins)
+    counts = np.zeros(n_bins)
+    KXY2 = kx[:, None] ** 2 + ky[None, :] ** 2
+    for m in range(len(mz)):
+        K = np.sqrt(KXY2 + kz[m] ** 2)
+        sel = (K > 0) & (K <= k_max)
+        if not np.any(sel):
+            continue
+        S2 = (rho[m].real ** 2 + rho[m].imag ** 2) / N
+        w = 2.0 if mz[m] > 0 else 1.0                               # kz > 0 plane stands for +-kz
+        ib = np.clip(np.digitize(K[sel], k_edges) - 1, 0, n_bins - 1)
+        counts += w * np.bincount(ib, minlength=n_bins)
+        sums += w * np.bincount(ib, weights=S2[sel], minlength=n_bins)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        S = np.where(counts > 0, sums / counts, np.nan)
+    return 0.5 * (k_edges[1:] + k_edges[:-1]), S, counts
 
 
 def tables_to_dict(rods, defects):
