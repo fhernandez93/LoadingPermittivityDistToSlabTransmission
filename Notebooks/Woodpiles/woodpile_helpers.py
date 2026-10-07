@@ -487,6 +487,18 @@ def voxelize_woodpile(rods, box_size, grid_size, permittivity, background_permit
     grid = _as_triple(grid_size, int)
     coords = grid_coordinates(box_size, grid)
     eps = np.full(grid, background_permittivity, dtype=np.float32)
+    _stamp_woodpile(eps, coords, rods, box_size, permittivity, aspect_ratio,
+                    defect_segments=defect_segments, kappa=kappa, progress_every=progress_every)
+    return eps, coords
+
+
+def _stamp_woodpile(eps, coords, rods, box_size, value, aspect_ratio, defect_segments=None, kappa=0.0,
+                    progress_every=None):
+    """
+    Write `value` into every voxel of `eps` (shape = lengths of `coords`) inside a rod or defect
+    piece.  coords may be any sub-range of the full grid coordinates (e.g. a slab of z planes): the
+    membership test is pointwise on voxel centres, so the result is identical on the overlap.
+    """
     s = float(aspect_ratio)
     scale = np.sqrt(1.0 + kappa)          # both semi-axes scale so that the AREA scales by (1 + kappa)
     if defect_segments is None:
@@ -496,8 +508,8 @@ def voxelize_woodpile(rods, box_size, grid_size, permittivity, background_permit
     # (1) all defect-free rods at once through the union masks
     if _rods_span_box(rods, box_size):
         Mx, My = _layer_masks(rods, coords, s, skip=with_defects)
-        eps[:, Mx] = permittivity
-        np.moveaxis(eps, 1, 0)[:, My] = permittivity
+        eps[:, Mx] = value
+        np.moveaxis(eps, 1, 0)[:, My] = value
         plain = ()
     else:                                  # generic rod list: stamp rod by rod
         plain = (i for i in range(len(rods)) if i not in with_defects)
@@ -513,8 +525,31 @@ def voxelize_woodpile(rods, box_size, grid_size, permittivity, background_permit
         for s0, s1, kind in _rod_pieces(rod, on_rod, box_size):
             bb = b if kind == 'rod' else b * scale
             if bb > 0.0:
-                voxelize_rod_axis(eps, coords, rod['orientation'], s0, s1, rod['position'], rod['z'], bb, s, permittivity)
-    return eps, coords
+                voxelize_rod_axis(eps, coords, rod['orientation'], s0, s1, rod['position'], rod['z'], bb, s, value)
+
+
+def woodpile_voxel_ff(rods, box_size, grid_size, aspect_ratio, defect_segments=None, kappa=0.0,
+                      max_chunk_voxels=2 ** 26):
+    """
+    Voxel filling fraction mean(eps != background) of voxelize_woodpile WITHOUT building the
+    float grid.  Defect-free spanning rods: perfect_voxel_ff (2-D masks only).  Otherwise the
+    occupied voxels are counted slab by slab along z in a boolean array of <= max_chunk_voxels
+    (same membership tests, so the count is voxel-for-voxel identical; memory ~ Nx*Ny*nz_chunk bytes).
+    """
+    grid = _as_triple(grid_size, int)
+    Nx, Ny, Nz = grid
+    no_defects = defect_segments is None or len(defect_segments) == 0
+    if no_defects and _rods_span_box(rods, box_size):
+        return perfect_voxel_ff(rods, box_size, grid, aspect_ratio)
+    coords = grid_coordinates(box_size, grid)
+    nz_chunk = max(1, int(max_chunk_voxels) // (Nx * Ny))
+    filled = 0
+    for k0 in range(0, Nz, nz_chunk):
+        sub = [coords[0], coords[1], coords[2][k0:k0 + nz_chunk]]
+        occ = np.zeros((Nx, Ny, len(sub[2])), dtype=bool)
+        _stamp_woodpile(occ, sub, rods, box_size, True, aspect_ratio, defect_segments=defect_segments, kappa=kappa)
+        filled += int(np.count_nonzero(occ))
+    return filled / float(Nx * Ny * Nz)
 
 
 def create_woodpile_dist(
@@ -597,7 +632,8 @@ def create_woodpile_dist(
 
     add_eps_dist=False drops the voxel grid from the output: eps is returned as None and the
     'epsilon' dataset is left out of the HDF5 file (rods/defects tables and params are still
-    written).  The grid is still voxelized internally to measure ff.
+    written).  The float grid is never built: ff is the same voxel count, taken from the 2-D
+    cross-section masks (no defects) or from boolean z-slabs (woodpile_voxel_ff).
 
     Returns
     -------
@@ -689,8 +725,13 @@ def create_woodpile_dist(
               f"{len(segments)} complete segments, {len(chosen)} defects (kappa = {kappa}, "
               f"{defect_distribution})")
 
-    eps, coords = voxelize_woodpile(rods, box, grid, permittivity, background_permittivity, s,
-                                    defect_segments=chosen, kappa=kappa, progress_every=progress_every)
+    if add_eps_dist:
+        eps, coords = voxelize_woodpile(rods, box, grid, permittivity, background_permittivity, s,
+                                        defect_segments=chosen, kappa=kappa, progress_every=progress_every)
+        ff = float(np.mean(eps != np.float32(background_permittivity)))
+    else:                                  # no float grid: count the occupied voxels in boolean z-slabs
+        eps, coords = None, grid_coordinates(box, grid)
+        ff = woodpile_voxel_ff(rods, box, grid, s, defect_segments=chosen, kappa=kappa)
 
     scale = float(np.sqrt(1.0 + kappa))
     defects = np.zeros(len(chosen), dtype=DEFECT_DTYPE)
@@ -701,7 +742,6 @@ def create_woodpile_dist(
                       *p1, *p2, rod['layer'], rod['orientation'], seg['rod'], seg['j'],
                       kappa, b * scale, a * scale)
 
-    ff = float(np.mean(eps != np.float32(background_permittivity)))
     ff_analytic = np.pi * a * b / (d * h)
     ff_perfect = perfect_ff(b) if n_defects > 0 else ff
     seg_volume = np.pi * a * b * d
@@ -737,8 +777,6 @@ def create_woodpile_dist(
     if verbose:
         print(f"[woodpile] b = {b:.4f}, a = {a:.4f}  ->  ff(voxel) = {ff:.4f}, "
               f"ff(defect-free) = {ff_perfect:.4f}, ff(analytic, no overlap) = {ff_analytic:.4f}")
-    if not add_eps_dist:
-        eps = None
     return eps, rods, defects, ff, info
 
 
