@@ -17,6 +17,7 @@ filling-fraction bisection never touches the 3-D grid (perfect_voxel_ff).
 import os
 import sys
 
+import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -25,6 +26,9 @@ sys.path.append(os.path.abspath(r'H:\codes\tidy3d'))
 import AutomationModule as AM
 
 __all__ = ['create_woodpile_dist', 'build_woodpile_rods', 'enumerate_segments', 'place_defects',
+           'check_periodic_box', 'primary_rods', 'periodic_stamp_segments', 'write_woodpile_ctl',
+           'write_woodpile_primitive_ctl', 'woodpile_kpoint_cartesian', 'CTL_DEFAULTS',
+           'WOODPILE_KPOINTS_FCC', 'WOODPILE_KPATH', 'read_mpb_freqs',
            'segment_centres', 'stratify_equal_mass', 'structure_factor', 'voxelize_woodpile', 'voxelize_rod', 'voxelize_rod_axis', 'perfect_voxel_ff', 'grid_coordinates', 'tables_to_dict', 'show_slice',
            'ROD_DTYPE', 'DEFECT_DTYPE']
 
@@ -277,30 +281,117 @@ def build_woodpile_rods(box_size, d, dz, minor_radius, aspect_ratio=2.8, layer_o
     return np.array(rods, dtype=ROD_DTYPE), z_layers
 
 
-def enumerate_segments(rods, box_size, d, tol=1e-9, interior_only=True):
+def check_periodic_box(box_size, d, dz, n_layers=None, tol=1e-6):
+    """
+    Cell counts (Nx, Ny, Nz) of a box that is a periodic supercell of the woodpile: Lx = Nx d,
+    Ly = Ny d, Lz = Nz dz (and 4 Nz layers, if n_layers is given).  Raises ValueError otherwise.
+    """
+    Lx, Ly, Lz = _as_triple(box_size, float)
+    counts = [L / p for L, p in ((Lx, d), (Ly, d), (Lz, dz))]
+    N = tuple(int(round(c)) for c in counts)
+    if any(n < 1 or abs(c - n) > tol * max(1.0, c) for c, n in zip(counts, N)):
+        raise ValueError(f"a periodic woodpile box needs Lx = Nx d, Ly = Ny d, Lz = Nz dz; got "
+                         f"Lx/d = {counts[0]:.6f}, Ly/d = {counts[1]:.6f}, Lz/dz = {counts[2]:.6f}")
+    if n_layers is not None and n_layers != 4 * N[2]:
+        raise ValueError(f"a periodic box with Lz = {N[2]} dz needs {4 * N[2]} layers, got {n_layers} "
+                         f"(keep 0 <= layer_offset < h/2)")
+    return N
+
+
+def primary_rods(rods, box_size, tol=1e-9):
+    """
+    Boolean mask of the rods that are NOT periodic images: build_woodpile_rods keeps a rod at both
+    in-plane faces (pos = -L/2 and +L/2) when the box is a multiple of d; in a periodic supercell the
+    one at +L/2 is the image of the one at -L/2.
+    """
+    Lx, Ly, Lz = _as_triple(box_size, float)
+    L_perp = np.where(rods['orientation'] == 'x', Ly, Lx)
+    return rods['position'] < L_perp / 2.0 - tol
+
+
+def _wrap(x, L):
+    """Minimal-image coordinate of x in a period L (result in [-L/2, L/2))."""
+    return x - L * np.floor(x / L + 0.5)
+
+
+def enumerate_segments(rods, box_size, d, tol=1e-9, interior_only=True, periodic=False):
     """
     All complete rod segments (length d) inside the box: arrays rod, j, s0, s1.
     interior_only: skip rods whose axis lies on or outside the box boundary (partial rods).
+    periodic: the box is a periodic supercell (check_periodic_box).  Every primary rod (primary_rods,
+    boundary rods included) contributes L_par / d segments that start inside the box; a segment that
+    starts within d of the +L/2 face wraps around (s1 > L/2, its tail continues at -L/2).
     """
     Lx, Ly, Lz = _as_triple(box_size, float)
+    keep = primary_rods(rods, box_size) if periodic else np.ones(len(rods), dtype=bool)
     out = []
     for i, r in enumerate(rods):
         L_par = Lx if r['orientation'] == 'x' else Ly
         L_perp = Ly if r['orientation'] == 'x' else Lx
-        if interior_only and abs(r['position']) >= L_perp / 2.0 - tol:
+        if not keep[i] or (not periodic and interior_only and abs(r['position']) >= L_perp / 2.0 - tol):
             continue
         jmin = int(np.floor((-L_par / 2.0 - r['seg_origin']) / d)) - 1
         jmax = int(np.ceil((L_par / 2.0 - r['seg_origin']) / d)) + 1
         for j in range(jmin, jmax + 1):
             s0 = r['seg_origin'] + j * d
             s1 = s0 + d
-            if s0 >= -L_par / 2.0 - tol and s1 <= L_par / 2.0 + tol:
+            inside = (s0 >= -L_par / 2.0 - tol and s0 < L_par / 2.0 - tol) if periodic else \
+                     (s0 >= -L_par / 2.0 - tol and s1 <= L_par / 2.0 + tol)
+            if inside:
                 out.append((i, j, s0, s1))
     seg = np.array(out, dtype=[('rod', 'i4'), ('j', 'i4'), ('s0', 'f8'), ('s1', 'f8')])
     return seg
 
 
-def _segments_conflict(cand, acc, rods, d, forbid_crossing=False, tol=1e-6):
+def periodic_stamp_segments(rods, segments, box_size, tol=1e-9):
+    """
+    Pieces to stamp for segments of a periodic supercell: a wrapping segment (s1 > L/2) is split into
+    [s0, L/2] and [-L/2, s1 - L], and every piece is repeated on the periodic image of its rod (the
+    copy at +L/2 of a boundary rod), so the voxel grid is periodic in-plane.  Same dtype as the input.
+    """
+    Lx, Ly, Lz = _as_triple(box_size, float)
+    out = []
+    for seg in segments:
+        r = rods[seg['rod']]
+        L_par = Lx if r['orientation'] == 'x' else Ly
+        L_perp = Ly if r['orientation'] == 'x' else Lx
+        pieces = [(seg['s0'], min(seg['s1'], L_par / 2.0))]
+        if seg['s1'] > L_par / 2.0 + tol:
+            pieces.append((-L_par / 2.0, seg['s1'] - L_par))
+        images = np.flatnonzero((rods['layer'] == r['layer'])
+                                & (np.abs(rods['position'] - (r['position'] + L_perp)) < 1e-6))
+        for i in (int(seg['rod']), *(int(k) for k in images)):
+            for s0, s1 in pieces:
+                out.append((i, seg['j'], s0, s1))
+    return np.array(out, dtype=segments.dtype)
+
+
+def _with_z_images(rods, segments, box_size, reach):
+    """
+    Rods (and their defect segments) of a periodic supercell plus their images shifted by +-Lz whose
+    cross-section (z extent `reach`) still reaches into the box, so the voxel grid is periodic along z
+    when the rods overlap the z faces (a > h/2).  The images are appended after the original rods.
+    """
+    Lz = _as_triple(box_size, float)[2]
+    imgs, src = [], []
+    for shift in (-Lz, Lz):
+        z = rods['z'] + shift
+        for i in np.flatnonzero(np.abs(z) - reach < Lz / 2.0):
+            r = rods[i].copy()
+            r['z'] += shift; r['z1'] += shift; r['z2'] += shift
+            imgs.append(r); src.append(i)
+    if not imgs:
+        return rods, segments
+    all_rods = np.concatenate([rods, np.array(imgs, dtype=rods.dtype)])
+    extra = []
+    for k, i in enumerate(src):
+        for seg in segments[segments['rod'] == i]:
+            extra.append((len(rods) + k, seg['j'], seg['s0'], seg['s1']))
+    all_segs = np.concatenate([segments, np.array(extra, dtype=segments.dtype)]) if extra else segments
+    return all_rods, all_segs
+
+
+def _segments_conflict(cand, acc, rods, d, forbid_crossing=False, tol=1e-6, periodic_box=None):
     """
     Overlap rule between one candidate segment and the accepted ones (vectorized).
     Two defects "overlap" (Aeby et al.: "two defects cannot overlap") only when they are the SAME
@@ -309,21 +400,41 @@ def _segments_conflict(cand, acc, rods, d, forbid_crossing=False, tol=1e-6):
     on neighbouring parallel rods (Figure 3: "when two defects are adjacent") are allowed.
     forbid_crossing=True additionally rejects a candidate whose segment crosses (touches) an
     accepted segment of an adjacent layer, where the elliptical rods physically overlap (a > h/2).
+    periodic_box: box of a periodic supercell; distances along the rod axes are then minimal-image
+    and the top and bottom layers are adjacent.
     """
     if len(acc) == 0 or not forbid_crossing:
         return False
     rc = rods[cand['rod']]
     ra = rods[acc['rod']]
-    adj_layer = np.abs(ra['layer'] - rc['layer']) == 1
-    crossing = adj_layer & (ra['position'] >= cand['s0'] - tol) & (ra['position'] <= cand['s1'] + tol)                & (rc['position'] >= acc['s0'] - tol) & (rc['position'] <= acc['s1'] + tol)
+    if periodic_box is None:
+        adj_layer = np.abs(ra['layer'] - rc['layer']) == 1
+        crossing = adj_layer & (ra['position'] >= cand['s0'] - tol) & (ra['position'] <= cand['s1'] + tol) \
+                   & (rc['position'] >= acc['s0'] - tol) & (rc['position'] <= acc['s1'] + tol)
+        return bool(np.any(crossing))
+    Lx, Ly, Lz = _as_triple(periodic_box, float)
+    n_layers = int(rods['layer'].max()) + 1
+    dl = np.abs(ra['layer'] - rc['layer'])
+    adj_layer = np.minimum(dl, n_layers - dl) == 1
+    Lc = Lx if rc['orientation'] == 'x' else Ly                  # period along the candidate axis
+    La = np.where(ra['orientation'] == 'x', Lx, Ly)               # periods along the accepted axes
+    crossing = adj_layer \
+        & (np.abs(_wrap(ra['position'] - 0.5 * (cand['s0'] + cand['s1']), Lc)) <= 0.5 * (cand['s1'] - cand['s0']) + tol) \
+        & (np.abs(_wrap(rc['position'] - 0.5 * (acc['s0'] + acc['s1']), La)) <= 0.5 * (acc['s1'] - acc['s0']) + tol)
     return bool(np.any(crossing))
 
 
-def segment_centres(rods, segments):
-    """(N, 3) centres of the segments (rod, j, s0, s1) of enumerate_segments."""
+def segment_centres(rods, segments, box_size=None):
+    """
+    (N, 3) centres of the segments (rod, j, s0, s1) of enumerate_segments.  With box_size the centre
+    of a wrapping segment of a periodic supercell is mapped back into the box (no-op otherwise).
+    """
     r = rods[segments['rod']]
     mid = 0.5 * (segments['s0'] + segments['s1'])
     is_x = r['orientation'] == 'x'
+    if box_size is not None:
+        Lx, Ly, Lz = _as_triple(box_size, float)
+        mid = _wrap(mid, np.where(is_x, Lx, Ly))
     return np.column_stack([np.where(is_x, mid, r['position']), np.where(is_x, r['position'], mid), r['z']])
 
 
@@ -367,7 +478,8 @@ def stratify_equal_mass(points, n_cells, rng, bounds=None):
     return leaves
 
 
-def _place_defects_hyperuniform(rods, segments, n_defects, d, rng, forbid_crossing=False, box_size=None):
+def _place_defects_hyperuniform(rods, segments, n_defects, d, rng, forbid_crossing=False, box_size=None,
+                                periodic=False):
     """
     Hyperuniform choice of n_defects distinct segments: the candidate segment centres are split into
     n_defects compact cells of equal candidate count (stratify_equal_mass) and one segment is drawn
@@ -379,11 +491,14 @@ def _place_defects_hyperuniform(rods, segments, n_defects, d, rng, forbid_crossi
     candidate of the cell (in random order) is taken; if every candidate of the cell crosses an accepted
     defect (only at high candidate fractions, n_defects/len(segments) >~ 0.15), the unused non-crossing
     candidate closest to the cell centroid is taken instead (small displacement, typically <~ the mean spacing).
+    periodic=True (periodic supercell, needs box_size): wrapping segments are binned by their wrapped centre
+    and the crossing test is minimal-image.
     """
     if n_defects > len(segments):
         raise ValueError(f"n_defects = {n_defects} exceeds the {len(segments)} candidate segments; "
                          f"lower n_defects/defect_density")
-    pts = segment_centres(rods, segments)
+    pts = segment_centres(rods, segments, box_size if periodic else None)
+    pbox = box_size if periodic else None
     bounds = None
     if box_size is not None:
         box = np.asarray(_as_triple(box_size, float))
@@ -397,12 +512,14 @@ def _place_defects_hyperuniform(rods, segments, n_defects, d, rng, forbid_crossi
     for c in rng.permutation(len(cells)):
         cell = cells[c]
         for idx in cell[rng.permutation(len(cell))]:
-            if not used[idx] and not _segments_conflict(segments[idx], accepted, rods, d, forbid_crossing=True):
+            if not used[idx] and not _segments_conflict(segments[idx], accepted, rods, d, forbid_crossing=True,
+                                                        periodic_box=pbox):
                 break
         else:                              # whole cell blocked (or taken by earlier fallbacks): nearest free candidate to its centroid
             dist2 = np.sum((pts - pts[cell].mean(axis=0)) ** 2, axis=1)
             for idx in np.argsort(dist2, kind='stable'):
-                if not used[idx] and not _segments_conflict(segments[idx], accepted, rods, d, forbid_crossing=True):
+                if not used[idx] and not _segments_conflict(segments[idx], accepted, rods, d, forbid_crossing=True,
+                                                            periodic_box=pbox):
                     break
             else:
                 raise ValueError(f"could only place {len(accepted)} of {n_defects} non-crossing defects "
@@ -414,7 +531,7 @@ def _place_defects_hyperuniform(rods, segments, n_defects, d, rng, forbid_crossi
 
 
 def place_defects(rods, segments, n_defects, d, rng, forbid_crossing=False, distribution='random',
-                  box_size=None):
+                  box_size=None, periodic=False):
     """
     Choice of n_defects distinct segments (sampling without replacement).
     distribution='random': uniformly random choice (Poisson-like, S(k) = 1 at small k).
@@ -423,11 +540,13 @@ def place_defects(rods, segments, n_defects, d, rng, forbid_crossing=False, dist
     With forbid_crossing=True, segments crossing an already accepted defect of an adjacent
     layer are rejected (random: rejection sampling in random order; hyperuniform: per cell, with a
     fallback to the nearest free candidate).
+    periodic=True: segments of a periodic supercell (enumerate_segments(..., periodic=True), needs
+    box_size); the crossing test then uses minimal-image distances.
     """
     if n_defects <= 0:
         return segments[:0]
     if distribution == 'hyperuniform':
-        return _place_defects_hyperuniform(rods, segments, n_defects, d, rng, forbid_crossing, box_size)
+        return _place_defects_hyperuniform(rods, segments, n_defects, d, rng, forbid_crossing, box_size, periodic)
     if distribution != 'random':
         raise ValueError("distribution must be 'random' or 'hyperuniform'")
     order = rng.permutation(len(segments))
@@ -440,7 +559,8 @@ def place_defects(rods, segments, n_defects, d, rng, forbid_crossing=False, dist
     for idx in order:
         if len(accepted) >= n_defects:
             break
-        if not _segments_conflict(segments[idx], accepted, rods, d, forbid_crossing=True):
+        if not _segments_conflict(segments[idx], accepted, rods, d, forbid_crossing=True,
+                                  periodic_box=box_size if periodic else None):
             accepted = np.append(accepted, segments[idx:idx + 1])
     if len(accepted) < n_defects:
         raise ValueError(f"could only place {len(accepted)} of {n_defects} non-crossing defects "
@@ -552,6 +672,247 @@ def woodpile_voxel_ff(rods, box_size, grid_size, aspect_ratio, defect_segments=N
     return filled / float(Nx * Ny * Nz)
 
 
+# ---------------------------------------------------------------------------------------------------
+# MPB (.ctl) export
+# ---------------------------------------------------------------------------------------------------
+# Defaults of the supercell ctl (write_woodpile_ctl); see the MPB section of create_woodpile_dist.ipynb
+# for the convergence tests behind them.  Lengths in the ctl are in units of the rod pitch d, so MPB
+# frequencies are nu = d / lambda (the a/lambda of the FDTD notebooks, a = d).
+CTL_DEFAULTS = dict(
+    resolution=16,          # grid points per d (MPB `resolution`); 'voxels' geometry: the voxel grid
+    mesh_size=3,            # sub-pixel averaging mesh (MPB `mesh-size`)
+    num_bands=None,         # None: ceil(band_margin * gap_band) with gap_band = 4 Nx Ny Nz
+    band_margin=1.25,       # bands computed above the gap band (fraction of gap_band)
+    tolerance=1e-5,         # eigensolver tolerance
+    block_size=None,        # MPB eigensolver-block-size (None: MPB default -11)
+    k_points='gamma',       # 'gamma' or a list of (k1, k2, k3) in the supercell reciprocal basis
+    geometry='auto',        # 'objects' | 'voxels' | 'auto' (objects unless elliptical rods carry defects)
+    output_epsilon=True,    # write <name>-epsilon.h5 (check the geometry with h5topng / h5py)
+)
+_ELLIPSOID_LENGTH = 1e4     # length (units of d) of the ellipsoid standing in for an infinite elliptical rod
+
+
+def _scm(x):
+    """Scheme number literal."""
+    return 'infinity' if np.isinf(x) else f"{float(x):.10g}"
+
+
+def _rod_object(axis, pos, z0, s0, s1, b, a, c2l=False):
+    """
+    MPB geometric object of one rod piece from s0 to s1 along `axis` ('x' or 'y'; s0, s1 = -inf, inf for an
+    infinite rod).  Circular rods (a == b) are cylinders.  An infinite elliptical rod (in-plane semi-axis b,
+    a along z) is an ellipsoid of length _ELLIPSOID_LENGTH, whose cross-section inside the cell differs from
+    the ellipse by < (L / 1e4)^2 / 2; MPB has no finite elliptical cylinder (libctl prisms work but take
+    minutes per object to initialize), so finite elliptical pieces raise.  c2l wraps every vector in
+    (c->l ...) for a non-orthogonal lattice; radius, height and size are cartesian lengths.
+    """
+    def vec(v):
+        txt = ' '.join(_scm(c) for c in v)
+        return f"(c->l {txt})" if c2l else f"(vector3 {txt})"
+    ax = (1, 0, 0) if axis == 'x' else (0, 1, 0)
+    infinite = np.isinf(s0) or np.isinf(s1)
+    centre, height = (0.0, np.inf) if infinite else (0.5 * (s0 + s1), s1 - s0)
+    c = (centre, pos, z0) if axis == 'x' else (pos, centre, z0)
+    if np.isclose(a, b):
+        return (f"(make cylinder (material diel) (center {vec(c)}) (axis {vec(ax)}) "
+                f"(radius {_scm(b)}) (height {_scm(height)}))")
+    if not infinite:
+        raise ValueError("finite elliptical rod pieces cannot be MPB objects; use geometry='voxels'")
+    perp = (0, 1, 0) if axis == 'x' else (1, 0, 0)
+    return (f"(make ellipsoid (material diel) (center {vec(c)}) (e1 {vec(ax)}) (e2 {vec(perp)}) "
+            f"(e3 {vec((0, 0, 1))}) (size {_scm(_ELLIPSOID_LENGTH)} {_scm(2 * b)} {_scm(2 * a)}))")
+
+
+def _ctl_header(lines, title, permittivity, background_permittivity, d):
+    lines += [f"; {title}",
+              "; written by woodpile_helpers.py (create_woodpile_dist, generate_ctl=True)",
+              f"; lengths in units of the rod pitch d = {d:g} um  ->  MPB frequencies are nu = d/lambda",
+              "",
+              f"(set! default-material (make dielectric (epsilon {_scm(background_permittivity)})))",
+              f"(define diel (make dielectric (epsilon {_scm(permittivity)})))",
+              ""]
+
+
+def _ctl_run(lines, opt):
+    res = opt['resolution']
+    res = f"(vector3 {' '.join(_scm(r) for r in res)})" if np.ndim(res) else str(int(res))
+    lines += [f"(set-param! resolution {res})",
+              f"(set-param! mesh-size {int(opt['mesh_size'])})",
+              f"(set-param! num-bands {int(opt['num_bands'])})",
+              f"(set! tolerance {opt['tolerance']:g})"]
+    if opt.get('block_size') is not None:
+        lines.append(f"(set! eigensolver-block-size {int(opt['block_size'])})")
+    if not opt.get('output_epsilon', True):
+        lines.append('(set! output-epsilon (lambda () (print "skipping output-epsilon\\n")))')
+    lines += ["", "(run)", ""]
+
+
+def write_woodpile_ctl(path, rods, defect_segments, box_size, d, dz, aspect_ratio, permittivity,
+                       background_permittivity, kappa=0.0, title=None, eps=None, **options):
+    """
+    MPB control file of the box as ONE periodic supercell (Lx = Nx d, Ly = Ny d, Lz = Nz dz, see
+    check_periodic_box).  Lengths are in units of d (frequencies nu = d/lambda).  The complete gap of the
+    perfect woodpile lies above band gap_band = 4 Nx Ny Nz (2 rods per primitive cell, 2 primitive cells per
+    d x d x dz cell); num_bands defaults to ceil(band_margin * gap_band).  Options: CTL_DEFAULTS.
+
+    geometry='objects': exact MPB geometric objects with sub-pixel averaging.  rods: rod table of
+    build_woodpile_rods / create_woodpile_dist; only primary_rods are written (the copy at +L/2 of a boundary
+    rod is MPB's periodic image).  defect_segments: (rod, j, s0, s1) segments carrying the defect (cross-section
+    AREA x (1 + kappa)), e.g. the `chosen` segments of create_woodpile_dist; wrapping segments (s1 > L/2) are
+    split with periodic_stamp_segments.  Rods without defects are single infinite objects, rods with defects
+    are written piece by piece (_rod_pieces).  MPB's ensure-periodicity (default true) adds the images of
+    pieces and rods that cross the cell faces, so overlaps across the z faces (a > h/2) are periodic too.
+    Circular rods are cylinders; elliptical rods (aspect_ratio != 1) only work without defects (ellipsoids).
+    geometry='voxels': the periodic voxel grid `eps` (create_woodpile_dist with periodic=True) is written to
+    <path stem>_eps.h5 (dataset 'epsilon') and read as MPB's epsilon-input-file on the same grid; needed for
+    elliptical rods with defects.  geometry='auto': 'voxels' only in that case.
+    Returns (path, options used).
+    """
+    opt = {**CTL_DEFAULTS, **options}
+    box = _as_triple(box_size, float)
+    Lx, Ly, Lz = box
+    n_layers = int(rods['layer'].max()) + 1
+    Nx, Ny, Nz = check_periodic_box(box, d, dz, n_layers)
+    gap_band = 4 * Nx * Ny * Nz
+    if opt['num_bands'] is None:
+        opt['num_bands'] = max(int(np.ceil(opt['band_margin'] * gap_band)), gap_band + 8)
+    s = float(aspect_ratio)
+    n_def = 0 if defect_segments is None else len(defect_segments)
+    if opt['geometry'] == 'auto':
+        opt['geometry'] = 'voxels' if (s != 1.0 and n_def > 0) else 'objects'
+    if opt['geometry'] not in ('objects', 'voxels'):
+        raise ValueError("geometry must be 'objects', 'voxels' or 'auto'")
+    keep = primary_rods(rods, box)
+
+    lines = []
+    _ctl_header(lines, title or f"woodpile supercell {Nx} x {Ny} x {Nz} (d x d x dz cells)",
+                permittivity, background_permittivity, d)
+    lines += [f"; cells {Nx} x {Ny} x {Nz}, {n_layers} layers, {int(keep.sum())} rods, "
+              f"{n_def} defect segments (kappa = {kappa:+g}), geometry: {opt['geometry']}",
+              f"; complete gap of the perfect crystal above band {gap_band}",
+              f"(set! geometry-lattice (make lattice (size {_scm(Lx / d)} {_scm(Ly / d)} {_scm(Lz / d)})))", ""]
+    if opt['geometry'] == 'voxels':
+        if eps is None:
+            raise ValueError("geometry='voxels' needs the voxel grid eps")
+        eps_file = os.path.splitext(path)[0] + "_eps.h5"
+        os.makedirs(os.path.dirname(os.path.abspath(eps_file)), exist_ok=True)
+        with h5py.File(eps_file, 'w') as fh:
+            fh.create_dataset('epsilon', data=np.asarray(eps, dtype=np.float64))
+        # MPB grid = voxel grid (MPB rounds resolution * size UP, so stay a hair below n / size)
+        opt['resolution'] = tuple(n / (L / d) * (1.0 - 1e-9) for n, L in zip(eps.shape, box))
+        opt['eps_file'] = eps_file
+        lines += [f'(set! epsilon-input-file "{os.path.basename(eps_file)}")   ; voxel grid {eps.shape}',
+                  "(set! geometry (list))", ""]
+    else:
+        scale = np.sqrt(1.0 + kappa)
+        stamp = (periodic_stamp_segments(rods, defect_segments, box) if n_def
+                 else np.zeros(0, dtype=[('rod', 'i4'), ('j', 'i4'), ('s0', 'f8'), ('s1', 'f8')]))
+        lines += ["(set! geometry", " (list"]
+        for i in np.flatnonzero(keep):
+            rod = rods[i]
+            b = float(rod['minor_radius'])
+            on_rod = stamp[stamp['rod'] == i]
+            pieces = _rod_pieces(rod, on_rod, box) if len(on_rod) else [(-np.inf, np.inf, 'rod')]
+            for s0, s1, kind in pieces:
+                f = 1.0 if kind == 'rod' else scale
+                if f * b > 0.0:
+                    lines.append("  " + _rod_object(rod['orientation'], rod['position'] / d, rod['z'] / d,
+                                                     s0 / d, s1 / d, f * b / d, f * s * b / d))
+        lines += [" ))", ""]
+    kp = opt['k_points']
+    if isinstance(kp, str):
+        if kp != 'gamma':
+            raise ValueError("k_points must be 'gamma' or a list of (k1, k2, k3)")
+        kp = [(0.0, 0.0, 0.0)]
+    lines.append("(set! k-points (list " + ' '.join(f"(vector3 {' '.join(_scm(c) for c in k)})" for k in kp) + "))")
+    _ctl_run(lines, opt)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, 'w', newline='\n') as fh:
+        fh.write('\n'.join(lines))
+    return path, dict(opt, gap_band=gap_band, cells=(Nx, Ny, Nz))
+
+
+# high-symmetry points of the woodpile in the frame of its FCC cube (units 2 pi / a_c, cube axes
+# e1 = (x + y)/sqrt2, e2 = (x - y)/sqrt2, e3 = z); exact for dz = sqrt(2) d.  The woodpile only has D2d
+# symmetry, so points that are equivalent in FCC split by their component along the stacking axis z:
+# X (z) vs X' (in-plane), W = (1, 1/2, 0) vs W' = (1, 0, 1/2).  For n = 3.3, ff = 0.40 the valence-band
+# maximum sits at W' and the conduction-band minimum at L (dense 12^3 BZ scan); the plain FCC path
+# Gamma-X-U-L-Gamma-X-W-K misses W' and overestimates the gap (15.8 % instead of 13.5 %).
+WOODPILE_KPOINTS_FCC = {
+    'Gamma': (0.0, 0.0, 0.0), 'X': (0.0, 0.0, 1.0), "X'": (1.0, 0.0, 0.0), 'L': (0.5, 0.5, 0.5),
+    'U': (1.0, 0.25, 0.25), 'W': (1.0, 0.5, 0.0), "W'": (1.0, 0.0, 0.5), 'K': (0.75, 0.75, 0.0),
+}
+WOODPILE_KPATH = ('Gamma', 'X', 'U', 'L', 'Gamma', 'K', 'W', "X'", "W'", 'L')
+
+
+def woodpile_kpoint_cartesian(v, d, dz):
+    """
+    Cartesian k (units 2 pi / d, woodpile frame: rods along x and y, stacking along z) of a point v given in
+    the FCC cube frame (WOODPILE_KPOINTS_FCC).  In-plane: (x, y) = ((v1 + v2)/2, (v1 - v2)/2); along z:
+    v3 d / dz, so X = (0, 0, d/dz) is the zone boundary 2 pi/dz of the stacking direction for any dz.
+    """
+    v = np.asarray(v, dtype=float)
+    return np.array([0.5 * (v[0] + v[1]), 0.5 * (v[0] - v[1]), v[2] * d / dz])
+
+
+def write_woodpile_primitive_ctl(path, d, dz, minor_radius, aspect_ratio, permittivity,
+                                 background_permittivity, resolution=32, mesh_size=3, num_bands=8,
+                                 k_path=WOODPILE_KPATH, k_interp=8, tolerance=1e-7, output_epsilon=True,
+                                 title=None):
+    """
+    MPB band-structure file of the PERFECT woodpile in its primitive cell: body-centred tetragonal lattice
+    a1 = (d, 0, 0), a2 = (0, d, 0), a3 = (d/2, d/2, dz/2) (FCC for dz = sqrt(2) d) with 2 rods: an x-rod at
+    z = -h/2 and a y-rod at z = +h/2 (layers 0 and 1 of build_woodpile_rods; layers 2 and 3 are their
+    images under a3); cylinders, or long ellipsoids for elliptical rods.  The complete gap lies between bands 2 and 3.  k_path: names of WOODPILE_KPOINTS_FCC
+    (converted with woodpile_kpoint_cartesian and MPB's cartesian->reciprocal), interpolated with k_interp
+    points per leg.  Lengths in units of d (nu = d/lambda).  Returns path.
+    """
+    h = dz / 4.0
+    b = float(minor_radius)
+    a = float(aspect_ratio) * b
+    c = dz / (2.0 * d)
+    lines = []
+    _ctl_header(lines, title or "woodpile primitive cell (body-centred tetragonal, 2 rods)",
+                permittivity, background_permittivity, d)
+    lines += [f"; b = {b:g} um, a = {a:g} um, dz/d = {dz / d:.6g}; complete gap between bands 2 and 3",
+              "(set! geometry-lattice (make lattice (basis1 1 0 0) (basis2 0 1 0) "
+              f"(basis3 0.5 0.5 {_scm(c)}) (basis-size 1 1 {_scm(np.sqrt(0.5 + c * c))})))",
+              "(define (c->l . args) (cartesian->lattice (apply vector3 args)))",
+              "(define (c->r . args) (cartesian->reciprocal (apply vector3 args)))",
+              "", "(set! geometry", " (list"]
+    for axis, z0 in (('x', -h / 2.0), ('y', h / 2.0)):
+        lines.append("  " + _rod_object(axis, 0.0, z0 / d, -np.inf, np.inf, b / d, a / d, c2l=True))
+    lines += [" ))", ""]
+    for name, v in WOODPILE_KPOINTS_FCC.items():
+        kc = woodpile_kpoint_cartesian(v, d, dz)
+        sym = name.replace("'", "p")
+        lines.append(f"(define {sym} (c->r {' '.join(_scm(x) for x in kc)}))   ; {name}")
+    path_syms = ' '.join(n.replace("'", "p") for n in k_path)
+    lines += [f"(define-param k-interp {int(k_interp)})",
+              f"(set! k-points (interpolate k-interp (list {path_syms})))   ; {' - '.join(k_path)}"]
+    _ctl_run(lines, dict(resolution=resolution, mesh_size=mesh_size, num_bands=num_bands,
+                         tolerance=tolerance, output_epsilon=output_epsilon))
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, 'w', newline='\n') as fh:
+        fh.write('\n'.join(lines))
+    return path
+
+
+def read_mpb_freqs(out_file, prefix='freqs:'):
+    """
+    k-points (reciprocal basis, (n_k, 3)), |k| / 2 pi and frequencies (n_k, n_bands) from the `freqs:`
+    lines of an MPB output (stdout of `mpb file.ctl > file.out`).  prefix='zevenfreqs:' etc. for run-zeven.
+    """
+    rows = [ln.strip().split(',') for ln in open(out_file)
+            if ln.startswith(prefix + ',') and 'band 1' not in ln]
+    if not rows:
+        raise ValueError(f"no '{prefix}' lines in {out_file}")
+    k = np.array([[float(x) for x in r[2:5]] for r in rows])
+    kmag = np.array([float(r[5]) for r in rows])
+    freqs = np.array([[float(x) for x in r[6:]] for r in rows])
+    return k, kmag, freqs
+
+
 def create_woodpile_dist(
     box_size,
     grid_size,
@@ -577,6 +938,9 @@ def create_woodpile_dist(
     save_rods=False,
     add_eps_dist=True,
     dir_save="./Structures",
+    generate_ctl=False,
+    ctl_options=None,
+    periodic=None,
 ):
     """
     Voxelized permittivity of a woodpile photonic crystal with controlled rod-segment defects
@@ -635,6 +999,25 @@ def create_woodpile_dist(
     written).  The float grid is never built: ff is the same voxel count, taken from the 2-D
     cross-section masks (no defects) or from boolean z-slabs (woodpile_voxel_ff).
 
+    MPB export
+    ----------
+    generate_ctl=True writes MPB control files to dir_save (same stem as the HDF5 file, lengths in units of
+    d, so MPB frequencies are nu = d/lambda):
+    * <stem>.ctl: the box as one periodic supercell (write_woodpile_ctl), exact MPB geometric objects with
+      the defects; by default Gamma only, num-bands = 1.25 x the gap band 4 Nx Ny Nz.
+    * <stem>_primitive.ctl (defect-free structures only): band structure of the perfect crystal in its
+      2-rod primitive cell along WOODPILE_KPATH (write_woodpile_primitive_ctl).
+    The box must be a supercell: Lx = Nx d, Ly = Ny d, Lz = Nz dz (check_periodic_box).  ctl_options
+    overrides CTL_DEFAULTS (resolution, mesh_size, num_bands, k_points, ...); the keys 'primitive_resolution',
+    'primitive_num_bands' and 'k_interp' go to the primitive-cell file.  The paths are in info['ctl_files'].
+    periodic (default: generate_ctl) treats the box as a periodic supercell when PLACING defects: every
+    primary rod (primary_rods; boundary rods included) carries Lpar/d candidate segments, segments may wrap
+    around the box, the crossing test is minimal-image, and the voxel grid stamps wrapped pieces on both
+    faces and on the z images of rods overlapping the z faces (a > h/2), so eps, ff and the filling-fraction
+    bisection describe the bulk crystal, exactly what the ctl describes.
+    Without it the box faces get no defects, which a periodic MPB supercell would see as a defect-free plane.
+    Periodic files with defects get a `_periodic` tag; the realization differs from periodic=False.
+
     Returns
     -------
     eps      : (Nx, Ny, Nz) float32 permittivity grid (background first, rods overwrite),
@@ -653,7 +1036,7 @@ def create_woodpile_dist(
     -----
     * Defect segments in the outermost layers are clipped by the z faces of the box (a_defect can
       exceed the distance to the face), so their effective volume is below (1 + kappa)*V_segment;
-      interior layers are exact.
+      interior layers are exact (periodic=False; with periodic=True they wrap around instead).
     * The voxel ff at dx = 0.05 um is ~3 % above the continuum value; it converges from above
       (0.3588 -> 0.3500 at dx = 0.025 for the paper parameters).
     """
@@ -670,10 +1053,14 @@ def create_woodpile_dist(
         raise ValueError("give exactly one of minor_radius or filling_fraction")
     if defect_distribution not in ('random', 'hyperuniform'):
         raise ValueError("defect_distribution must be 'random' or 'hyperuniform'")
+    periodic = bool(generate_ctl) if periodic is None else bool(periodic)
+    segments_none = np.zeros(0, dtype=[('rod', 'i4'), ('j', 'i4'), ('s0', 'f8'), ('s1', 'f8')])
 
     def perfect_ff(b):
         # exact voxel ff of the defect-free crystal from the 2-D cross-section masks (no 3-D grid)
         rods_b, _ = build_woodpile_rods(box, d, dz, b, s, layer_offset, segment_ref)
+        if periodic:                      # bulk crystal: rods overlapping the z faces wrap around
+            rods_b, _ = _with_z_images(rods_b, segments_none, box, s * b)
         return perfect_voxel_ff(rods_b, box, grid, s)
 
     ff_residual = None
@@ -706,6 +1093,7 @@ def create_woodpile_dist(
     a = s * b
 
     rods, z_layers = build_woodpile_rods(box, d, dz, b, s, layer_offset, segment_ref)
+    cells = check_periodic_box(box, d, dz, len(z_layers)) if periodic else None
     n_outside = int(np.sum(np.abs(rods['position']) > np.where(rods['orientation'] == 'x', Ly, Lx) / 2.0))
     if n_outside and verbose:
         print(f"[warn] {n_outside}/{len(rods)} rod axes fall outside the box (partial rods at the boundary).")
@@ -715,10 +1103,16 @@ def create_woodpile_dist(
     n_defects = int(n_defects)
     # actual (post-rounding) defect density; 0.0 for a defect-free woodpile
     defect_density = n_defects / (Lx * Ly * Lz)
-    segments = enumerate_segments(rods, box, d)
+    segments = enumerate_segments(rods, box, d, periodic=periodic)
     chosen = (place_defects(rods, segments, n_defects, d, rng, forbid_crossing,
-                            distribution=defect_distribution, box_size=box)
+                            distribution=defect_distribution, box_size=box, periodic=periodic)
               if n_defects > 0 else segments[:0])
+    # pieces actually stamped: wrapped segments split and copied onto the periodic images of boundary rods
+    # and, along z, onto the images of the rods that overlap the z faces
+    rods_st, stamp = rods, chosen
+    if periodic:
+        rods_st, stamp = _with_z_images(rods, periodic_stamp_segments(rods, chosen, box), box,
+                                        a * max(1.0, np.sqrt(1.0 + kappa)))
 
     if verbose:
         print(f"[woodpile] {len(z_layers)} layers (h = {h:.4f}), {len(rods)} rods, "
@@ -726,20 +1120,20 @@ def create_woodpile_dist(
               f"{defect_distribution})")
 
     if add_eps_dist:
-        eps, coords = voxelize_woodpile(rods, box, grid, permittivity, background_permittivity, s,
-                                        defect_segments=chosen, kappa=kappa, progress_every=progress_every)
+        eps, coords = voxelize_woodpile(rods_st, box, grid, permittivity, background_permittivity, s,
+                                        defect_segments=stamp, kappa=kappa, progress_every=progress_every)
         ff = float(np.mean(eps != np.float32(background_permittivity)))
     else:                                  # no float grid: count the occupied voxels in boolean z-slabs
         eps, coords = None, grid_coordinates(box, grid)
-        ff = woodpile_voxel_ff(rods, box, grid, s, defect_segments=chosen, kappa=kappa)
+        ff = woodpile_voxel_ff(rods_st, box, grid, s, defect_segments=stamp, kappa=kappa)
 
     scale = float(np.sqrt(1.0 + kappa))
     defects = np.zeros(len(chosen), dtype=DEFECT_DTYPE)
+    centres = segment_centres(rods, chosen, box)          # wrapping segments: centre mapped into the box
     for m, seg in enumerate(chosen):
         rod = rods[seg['rod']]
-        p1, p2 = _endpoints(rod, seg['s0'], seg['s1'])
-        defects[m] = (0.5 * (p1[0] + p2[0]), 0.5 * (p1[1] + p2[1]), 0.5 * (p1[2] + p2[2]),
-                      *p1, *p2, rod['layer'], rod['orientation'], seg['rod'], seg['j'],
+        p1, p2 = _endpoints(rod, seg['s0'], seg['s1'])    # unwrapped: p2 may lie beyond +L/2 (periodic)
+        defects[m] = (*centres[m], *p1, *p2, rod['layer'], rod['orientation'], seg['rod'], seg['j'],
                       kappa, b * scale, a * scale)
 
     ff_analytic = np.pi * a * b / (d * h)
@@ -754,16 +1148,47 @@ def create_woodpile_dist(
         ff_defect_estimate=ff_perfect + len(chosen) * kappa * seg_volume / (Lx * Ly * Lz),
         ff_target=filling_fraction, ff_residual=ff_residual,
         voxel_size=tuple(L / N for L, N in zip(box, grid)), coords=coords,
-        rods_outside_box=n_outside,
+        rods_outside_box=n_outside, periodic=periodic, cells=cells, ctl_files=[],
     )
+
+    seed_str = "none" if seed is None else str(seed)
+    tag = f"woodpile_d{d:.2f}_kappa{info['kappa']:+.2f}_rho{defect_density:.3f}_seed{seed_str}"
+    if defect_distribution != 'random' and len(chosen) > 0:
+        tag += f"_{defect_distribution}"     # random files keep their old names
+    if periodic and len(chosen) > 0:
+        tag += "_periodic"
+    stem = rf"{dir_save}/n_{np.sqrt(permittivity):.2f}_ff_{ff:.4f}_{tag}"
+
+    if generate_ctl:
+        opt = dict(ctl_options or {})
+        prim = dict(resolution=opt.pop('primitive_resolution', 32), num_bands=opt.pop('primitive_num_bands', 8),
+                    k_interp=opt.pop('k_interp', 8))
+        title = (f"woodpile n = {np.sqrt(permittivity):.3f}, ff = {ff:.4f}, b = {b:.5f} um, a/b = {s:g}, "
+                 f"{len(chosen)} defects (kappa = {kappa:+g}, {defect_distribution})")
+        geom = opt.get('geometry', CTL_DEFAULTS['geometry'])
+        if geom == 'auto':
+            geom = opt['geometry'] = 'voxels' if (s != 1.0 and len(chosen) > 0) else 'objects'
+        eps_ctl = eps
+        if geom == 'voxels' and eps_ctl is None:   # add_eps_dist=False: build the grid for MPB only
+            eps_ctl, _ = voxelize_woodpile(rods_st, box, grid, permittivity, background_permittivity, s,
+                                           defect_segments=stamp, kappa=kappa)
+        path, used = write_woodpile_ctl(f"{stem}.ctl", rods, chosen, box, d, dz, s, permittivity,
+                                        background_permittivity, kappa=kappa, title=title, eps=eps_ctl, **opt)
+        info['ctl_files'].append(path)
+        info['ctl_options'] = used
+        if len(chosen) == 0:
+            info['ctl_files'].append(write_woodpile_primitive_ctl(
+                f"{stem}_primitive.ctl", d, dz, b, s, permittivity, background_permittivity,
+                mesh_size=used['mesh_size'], **prim))
+        if verbose:
+            print(f"[ctl] supercell {used['cells']} -> gap above band {used['gap_band']}, "
+                  f"num-bands {used['num_bands']}, resolution {used['resolution']}/d")
+            for p_ in info['ctl_files']:
+                print(f"[ctl] wrote {p_}")
 
     if save_rods:
         dir = dir_save
         os.makedirs(dir, exist_ok=True)
-        seed_str = "none" if seed is None else str(seed)
-        tag = f"woodpile_d{d:.2f}_kappa{info['kappa']:+.2f}_rho{defect_density:.3f}_seed{seed_str}"
-        if defect_distribution != 'random' and len(chosen) > 0:
-            tag += f"_{defect_distribution}"     # random files keep their old names
         # AM.create_hdf5_from_dict({"epsilon": eps}, rf"{dir}/n_{np.sqrt(permittivity):.2f}_ff_{ff:.4f}.h5")
         AM.create_hdf5_from_dict(
             {**({"epsilon": eps} if add_eps_dist else {}), **tables_to_dict(rods, defects),
@@ -771,9 +1196,9 @@ def create_woodpile_dist(
                         "minor_radius": info['minor_radius'], "major_radius": info['major_radius'],
                         "aspect_ratio": aspect_ratio, "permittivity": permittivity, "background_permittivity": background_permittivity,
                         "kappa": info['kappa'], "defect_density": defect_density, "seed": -1 if seed is None else int(seed), "ff": ff,
-                        "defect_distribution": defect_distribution,
+                        "defect_distribution": defect_distribution, "periodic": int(periodic),
                         "ff_analytic": info['ff_analytic']}},
-            rf"{dir}/n_{np.sqrt(permittivity):.2f}_ff_{ff:.4f}_{tag}_tables.h5")
+            rf"{stem}_tables.h5")
     if verbose:
         print(f"[woodpile] b = {b:.4f}, a = {a:.4f}  ->  ff(voxel) = {ff:.4f}, "
               f"ff(defect-free) = {ff_perfect:.4f}, ff(analytic, no overlap) = {ff_analytic:.4f}")
