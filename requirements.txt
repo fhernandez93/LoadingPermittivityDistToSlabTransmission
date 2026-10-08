@@ -1,4 +1,4 @@
-tidy3d==2.5.0
+tidy3d
 trimesh
 python-dotenv
 matplotlib
