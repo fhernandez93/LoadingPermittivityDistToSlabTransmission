@@ -4,3 +4,4 @@ python-dotenv
 matplotlib
 ipywidgets
 natsort
+numpy-stl
