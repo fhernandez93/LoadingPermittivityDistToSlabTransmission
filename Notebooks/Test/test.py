@@ -20,8 +20,6 @@ import gc
 import sys
 import io
 
-# Assuming /AutomationModule is in the root directory of your project
-sys.path.append(os.path.abspath(rf'H:\phd stuff\tidy3d'))
 
 from AutomationModule import * 
 

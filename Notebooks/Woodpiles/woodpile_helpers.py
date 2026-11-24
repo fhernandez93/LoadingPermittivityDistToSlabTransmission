@@ -21,8 +21,6 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-# AutomationModule lives in the root of the tidy3d project
-sys.path.append(os.path.abspath(r'H:\codes\tidy3d'))
 import AutomationModule as AM
 
 __all__ = ['create_woodpile_dist', 'build_woodpile_rods', 'enumerate_segments', 'place_defects',

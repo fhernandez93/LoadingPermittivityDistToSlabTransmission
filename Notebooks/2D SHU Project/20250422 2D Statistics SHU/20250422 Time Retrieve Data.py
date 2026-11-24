@@ -26,8 +26,6 @@ import time
 time.sleep(5000)
 
 
-# Assuming /AutomationModule is in the root directory of your project
-sys.path.append(os.path.abspath(rf'H:\phd stuff\tidy3d'))
 
 from AutomationModule import * 
 

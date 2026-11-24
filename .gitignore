@@ -33,3 +33,5 @@ random_slab_td/
 output/
 Eigenfunctions_remote_copy
 **/.claude/settings.local.json
+*.egg-info/
+build/

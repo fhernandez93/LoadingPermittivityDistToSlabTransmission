@@ -25,8 +25,6 @@ import time
 # Delay for 1 hour (3600 seconds)
 time.sleep(5000)
 
-# Assuming /AutomationModule is in the root directory of your project
-sys.path.append(os.path.abspath(rf'H:\phd stuff\tidy3d'))
 
 from AutomationModule import * 
 

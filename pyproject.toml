@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "automation-module"
+version = "0.1.0"
+description = "Helpers for building and running Tidy3D simulations (AutomationModule)."
+requires-python = ">=3.9"
+# Runtime dependencies are listed in requirements.txt and installed separately,
+# so `pip install -e .` never upgrades or replaces the tidy3d version in use.
+
+[tool.setuptools]
+packages = ["AutomationModule"]

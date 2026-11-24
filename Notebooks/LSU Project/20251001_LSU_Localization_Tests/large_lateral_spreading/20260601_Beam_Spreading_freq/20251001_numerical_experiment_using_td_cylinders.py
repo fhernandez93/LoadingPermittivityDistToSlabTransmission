@@ -11,8 +11,6 @@ from stl import mesh
 import sys
 import os
 
-# Assuming /AutomationModule is in the root directory of your project
-sys.path.append(str(Path(__file__).resolve().parents[4]))
 
 from AutomationModule import * 
 

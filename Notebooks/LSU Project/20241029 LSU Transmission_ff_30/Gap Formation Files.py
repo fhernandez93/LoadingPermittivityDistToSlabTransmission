@@ -14,8 +14,6 @@ import matplotlib.pyplot as plt
 import sys
 import os
 
-# Assuming /AutomationModule is in the root directory of your project
-sys.path.append(os.path.abspath(fr'H:\phd stuff\tidy3d'))
 
 from AutomationModule import * 
 
