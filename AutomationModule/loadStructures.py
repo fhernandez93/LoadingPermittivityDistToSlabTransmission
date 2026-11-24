@@ -9,6 +9,13 @@ from datetime import date
 import os
 from tidy3d.plugins.dispersion import FastDispersionFitter, AdvancedFastFitterParam
 import trimesh as tri
+import warnings
+
+
+def _cell_centres(lo, hi, n):
+    """Centres of n equal cells tiling [lo, hi]. h5 voxels are cell-centred, so use this
+    (not np.linspace(lo, hi, n), which stretches the slab by n/(n-1))."""
+    return lo + (np.arange(n) + 0.5) * (hi - lo) / n
 
 
 class loadAndRunStructure:
@@ -31,7 +38,8 @@ class loadAndRunStructure:
                  sim_mode:str = "transmission", subpixel:bool=True, verbose:bool=False, monitors:list=[], cut_condition:float=1, cut_cell:float=False,cell_size_manual:float=None,
                  source:str="planewave", multiplicate_size:bool=False, tight_percentage:float=None,source_size:float=0, multiplication_factor:int = 1,pol_angle:float = 0,
                  ref_only:bool=False, absorbers:int=40, sim_name:str="",runtime_ps:float=0.0,flux_monitor_position:float=None, h5_bg:float=None,  sim_bg:float=1.0, far_field_settings:any=None,gaussian_params:any=None,
-                 boundaries:str="periodic", cut_slab_array_size:dict=None
+                 boundaries:str="periodic", cut_slab_array_size:dict=None,
+                 grid_mode:str="auto", voxel_refine:int=1
                  ):
         if not key:
             raise Exception("No API key was provided")
@@ -55,30 +63,35 @@ class loadAndRunStructure:
         self.structure_name = Path(file_path).stem
         # Load HDF5 file
         if  self.file_format == ".h5":
+            axis = "xyz".index(direction)
             with h5py.File(self.file, 'r') as f:
-                self.permittivity_raw = np.array(f['epsilon'])
+                dset = f['epsilon']
+                # Read only the planes that are kept (h5py hyperslab), not the full array.
+                sl = [slice(None)] * 3
+                if cut_slab_array_size:
+                    sl[0] = slice(0, round(dset.shape[0] * cut_slab_array_size["x"]))
+                    sl[1] = slice(0, round(dset.shape[1] * cut_slab_array_size["y"]))
                 if cut_condition < 1:
-                    if direction == "x":
-                        self.permittivity_raw=(self.permittivity_raw[:,:,:round(np.shape(self.permittivity_raw)[0]*cut_condition)])
-                    elif direction == "y":
-                        self.permittivity_raw=(self.permittivity_raw[:,:,:round(np.shape(self.permittivity_raw)[1]*cut_condition)])
-                    elif direction == "z":
-                        self.permittivity_raw=(self.permittivity_raw[:,:,:round(np.shape(self.permittivity_raw)[2]*cut_condition)])
-                elif cut_condition > 1:
-                    if direction == "x":
-                        extra_slice = self.permittivity_raw[:int(np.shape(self.permittivity_raw)[0] * (cut_condition - 1)), :, :]
-                        self.permittivity_raw = np.concatenate((self.permittivity_raw, extra_slice), axis=0)
-                    elif direction == "y":
-                        extra_slice = self.permittivity_raw[:, :int(np.shape(self.permittivity_raw)[1] * (cut_condition - 1)), :]
-                        self.permittivity_raw = np.concatenate((self.permittivity_raw, extra_slice), axis=1)
-                    elif direction == "z":
-                        extra_slice = self.permittivity_raw[:, :, :int(np.shape(self.permittivity_raw)[2] * (cut_condition - 1))]
-                        self.permittivity_raw = np.concatenate((self.permittivity_raw, extra_slice), axis=2)
-            
-            if cut_slab_array_size:
-                self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[0]*cut_slab_array_size["x"]-1)])
-                self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[1]*cut_slab_array_size["y"]-1)])
-            
+                    n_keep = round(dset.shape[axis] * cut_condition)
+                    if abs(n_keep - dset.shape[axis] * cut_condition) > 1e-6:
+                        warnings.warn(f"cut_condition*N = {dset.shape[axis] * cut_condition:g} is not an integer: keeping "
+                                      f"{n_keep} voxels, so the slab along {direction} is stretched by "
+                                      f"{n_keep / (dset.shape[axis] * cut_condition) - 1:+.2%}")
+                    stop = sl[axis].stop   # intersect with a cut_slab_array_size crop on the same axis
+                    sl[axis] = slice(0, n_keep if stop is None else min(stop, n_keep))
+                self.permittivity_raw = dset[tuple(sl)]
+                if cut_condition > 1:
+                    n_ax = self.permittivity_raw.shape[axis]
+                    if cut_condition > 2:
+                        raise ValueError("cut_condition > 2 is not supported (only one extra copy is appended)")
+                    n_extra = round(n_ax * (cut_condition - 1))
+                    if abs(n_extra - n_ax * (cut_condition - 1)) > 1e-6:
+                        warnings.warn(f"(cut_condition-1)*N = {n_ax * (cut_condition - 1):g} is not an integer: appending "
+                                      f"{n_extra} voxels, so the slab along {direction} is stretched by "
+                                      f"{(n_ax + n_extra) / (n_ax * cut_condition) - 1:+.2%}")
+                    extra_slice = np.take(self.permittivity_raw, np.arange(n_extra), axis=axis)
+                    self.permittivity_raw = np.concatenate((self.permittivity_raw, extra_slice), axis=axis)
+
             if h5_bg:
                 self.permittivity_raw[self.permittivity_raw<1.0001] = h5_bg
                                 
@@ -102,6 +115,12 @@ class loadAndRunStructure:
         self.source = source
         self.monitors = monitors
         self.min_steps_per_lambda = min_steps_per_lambda
+        if grid_mode not in ("auto", "voxel"):
+            raise ValueError(f"grid_mode must be 'auto' or 'voxel', got {grid_mode!r}")
+        self.grid_mode = grid_mode
+        if int(voxel_refine) != voxel_refine or voxel_refine < 1:
+            raise ValueError(f"voxel_refine must be an integer >= 1, got {voxel_refine!r}")
+        self.voxel_refine = int(voxel_refine)
         if self.file_format == ".h5":
             self.permittivity_value =  np.max(self.permittivity_raw) if permittivity == 1 else permittivity 
         else:
@@ -438,9 +457,9 @@ class loadAndRunStructure:
                 x_size,y_size,z_size = self.t_slab_x/self.multiplication_factor,self.t_slab_y/self.multiplication_factor,self.t_slab_z
                 if not self.multiplicate_size:
                     Nx, Ny, Nz = np.shape(self.permittivity_raw)
-                    X = np.linspace(-x_size/2,x_size/2, Nx)
-                    Y = np.linspace(-y_size/2, y_size/2, Ny)
-                    Z = np.linspace(-z_size/2, z_size/2, Nz)
+                    X = _cell_centres(-x_size/2, x_size/2, Nx)
+                    Y = _cell_centres(-y_size/2, y_size/2, Ny)
+                    Z = _cell_centres(-z_size/2, z_size/2, Nz)
                     coords = dict(x=X, y=Y, z=Z)
 
                     permittivity_data = SpatialDataArray(self.permittivity_raw,coords=coords)
@@ -483,9 +502,9 @@ class loadAndRunStructure:
     
                     for i,item in enumerate(self.coordinates_slabs):
                         Nx, Ny, Nz = np.shape(self.permittivity_raw)
-                        X = np.linspace(item["X"][0],item["X"][1], Nx)
-                        Y = np.linspace(item["Y"][0],item["Y"][1], Ny)
-                        Z = np.linspace(-z_size/2, z_size/2, Nz)
+                        X = _cell_centres(item["X"][0], item["X"][1], Nx)
+                        Y = _cell_centres(item["Y"][0], item["Y"][1], Ny)
+                        Z = _cell_centres(-z_size/2, z_size/2, Nz)
                         coords = dict(x=X, y=Y, z=Z)
         
                         permittivity_data = SpatialDataArray(self.permittivity_raw,coords=coords)
@@ -642,22 +661,16 @@ class loadAndRunStructure:
             z=td.Boundary(plus=td.Absorber(num_layers=self.absorbers),minus=td.Absorber(num_layers=self.absorbers)) if (self.direction=="z" or self.boundaries=="absorbers") else td.Boundary.periodic(),
         )
 
-        #Mesh override structure 
-        mesh_override = td.MeshOverrideStructure(
-        geometry=td.Box(center=(0,0,0), size=(
-                      self.t_slab_x if self.direction == "x"  else td.inf, 
-                      self.t_slab_y if self.direction == "y"  else td.inf, 
-                      self.t_slab_z if self.direction == "z"  else td.inf
-                      )),
-            dl=( (self.lambda_range[1] / (self.min_steps_per_lambda)) / np.sqrt(self.permittivity_value) #  grids per smallest wavelength in medium
-            ,)*3
-        )
+        if self.grid_mode == "voxel":
+            grid_spec = self.voxel_grid_spec()
+        else:
+            grid_spec = td.GridSpec.auto(min_steps_per_wvl=self.min_steps_per_lambda,wavelength=self.lambda0,
+                                         dl_min=self.dl,
+                                         max_scale=1.2,)
 
         return {
                 "size":self.sim_size,
-                "grid_spec": td.GridSpec.auto(min_steps_per_wvl=self.min_steps_per_lambda,wavelength=self.lambda0,
-                                            dl_min=self.dl,
-                                            max_scale=1.2,), 
+                "grid_spec": grid_spec, 
                 "sources": [self.source_def],
                 "monitors": self.monitors_names,
                 "run_time": self.t_stop,
@@ -667,6 +680,28 @@ class loadAndRunStructure:
                 "ref_structure":[] if self.ref_only else ([slab] if not self.multiplicate_size else slabs_ref),
                 }
     
+    def voxel_grid_spec(self):
+        """Grid aligned with the h5 voxels, dl = voxel / voxel_refine (integer refine keeps alignment).
+        Transverse axes: uniform over the whole (periodic) domain. Propagation axis: uniform inside the slab
+        (MeshOverrideStructure, whose faces are grid boundaries) and AutoGrid at the shortest wavelength outside."""
+        if self.file_format != ".h5" or self.multiplicate_size or self.ref_only:
+            raise ValueError("grid_mode='voxel' needs an .h5 structure, multiplicate_size=False and ref_only=False")
+        ax = "xyz".index(self.direction)
+        sizes = (self.t_slab_x, self.t_slab_y, self.t_slab_z)
+        dls = [sizes[i] / np.shape(self.permittivity_raw)[i] / self.voxel_refine for i in range(3)]
+        for i in range(3):
+            if i != ax and not np.isclose(self.sim_size[i], sizes[i]):
+                raise ValueError(f"grid_mode='voxel': domain along {'xyz'[i]} ({self.sim_size[i]}) != slab ({sizes[i]})")
+        grids = [td.AutoGrid(min_steps_per_wvl=self.min_steps_per_lambda, dl_min=float(dls[ax]), max_scale=1.2) if i == ax else td.UniformGrid(dl=dls[i])
+                 for i in range(3)]
+        override = td.MeshOverrideStructure(
+            geometry=td.Box(center=(0, 0, 0), size=tuple(sizes[i] if i == ax else td.inf for i in range(3))),
+            dl=tuple(dls[i] if i == ax else None for i in range(3)),
+        )
+        self.dl = dls[ax]
+        return td.GridSpec(grid_x=grids[0], grid_y=grids[1], grid_z=grids[2],
+                           wavelength=float(np.min(self.lambda_range)), override_structures=[override])
+
     def simulation_definition(self):
 
         definitions = self.sim_object
