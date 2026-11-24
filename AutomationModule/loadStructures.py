@@ -59,11 +59,11 @@ class loadAndRunStructure:
                 self.permittivity_raw = np.array(f['epsilon'])
                 if cut_condition < 1:
                     if direction == "x":
-                        self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[0]*cut_condition-1)])
+                        self.permittivity_raw=(self.permittivity_raw[:,:,:round(np.shape(self.permittivity_raw)[0]*cut_condition)])
                     elif direction == "y":
-                        self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[1]*cut_condition-1)])
+                        self.permittivity_raw=(self.permittivity_raw[:,:,:round(np.shape(self.permittivity_raw)[1]*cut_condition)])
                     elif direction == "z":
-                        self.permittivity_raw=(self.permittivity_raw[:,:,:int(np.shape(self.permittivity_raw)[2]*cut_condition-1)])
+                        self.permittivity_raw=(self.permittivity_raw[:,:,:round(np.shape(self.permittivity_raw)[2]*cut_condition)])
                 elif cut_condition > 1:
                     if direction == "x":
                         extra_slice = self.permittivity_raw[:int(np.shape(self.permittivity_raw)[0] * (cut_condition - 1)), :, :]
