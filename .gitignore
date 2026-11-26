@@ -35,3 +35,4 @@ Eigenfunctions_remote_copy
 **/.claude/settings.local.json
 *.egg-info/
 build/
+__pycache__/
