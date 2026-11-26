@@ -215,7 +215,7 @@ def plot_layout(sim, freq=None):
 
 # --------------------------------------------------------------------------- tasks
 
-def submit(sim, *, project_name, sim_name, run_file, ref_file, run=False):
+def submit(sim, *, project_name, sim_name, run_file, ref_file, run=False,verbose=True):
     """run=True: upload, start and monitor; the task id goes to run_file as "\\n<task id>"
     (the empty-domain reference is run once first and stored as "\\n<ref id>" in ref_file).
     run=False: upload as a draft, print the cost estimate and delete the draft."""
@@ -234,10 +234,12 @@ def submit(sim, *, project_name, sim_name, run_file, ref_file, run=False):
         id0 = web.upload(sim0, folder_name=project_name, task_name="LSU_reference", verbose=True)
         web.start(task_id=id0)
         ref_file.write_text("\n" + id0)
-        web.monitor(id0)
+        if verbose:
+            web.monitor(id0)
 
     task_id = web.upload(sim, folder_name=project_name, task_name=sim_name, verbose=True)
     web.start(task_id=task_id)
     run_file.write_text("\n" + task_id)
-    web.monitor(task_id)
+    if verbose:
+        web.monitor(task_id)
     return task_id

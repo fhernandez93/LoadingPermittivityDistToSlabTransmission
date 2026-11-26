@@ -664,7 +664,7 @@ class loadAndRunStructure:
         if self.grid_mode == "voxel":
             grid_spec = self.voxel_grid_spec()
         else:
-            grid_spec = td.GridSpec.auto(min_steps_per_wvl=self.min_steps_per_lambda,wavelength=self.lambda0,
+            grid_spec = td.GridSpec.auto(min_steps_per_wvl=self.min_steps_per_lambda,wavelength=float(np.min(self.lambda_range)),
                                          dl_min=self.dl,
                                          max_scale=1.2,)
 

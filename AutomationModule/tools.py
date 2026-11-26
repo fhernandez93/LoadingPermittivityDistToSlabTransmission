@@ -8,7 +8,7 @@ import tidy3d as td
 import matplotlib
 import matplotlib.patches as patches
 import matplotlib.colors as mcolors
-from scipy.fft import fftn, ifftn, fftshift
+from scipy.fft import fftn, ifftn, fftshift, rfftn, irfftn
 from scipy.interpolate import interp1d
 from scipy.signal import argrelextrema
 
@@ -316,74 +316,120 @@ def create_movie(sim_result, monitor_lambdas,name='',type='t',log=False,path="",
     
     return False
 
-### Calculate the charactieristic lenght from the correlations 
+### Calculate the characteristic length from the correlations
 
-def compute_normalized_autocorrelation_fft(density_field_3d):
-    # Subtract mean to center the data
-    rho = density_field_3d - np.mean(density_field_3d)
-    
-    # Compute autocorrelation via FFT
-    fft_rho = fftn(rho)
-    autocorr = np.real(ifftn(np.abs(fft_rho)**2))
-    
-    # Normalize
-    autocorr /= np.prod(rho.shape)
-    autocorr /= np.var(density_field_3d)  # Now C(0) = 1
+def compute_normalized_autocorrelation_fft(density_field_3d, max_lag=None):
+    """Periodic (circular) autocorrelation C(δ) normalized so that C(0) = 1.
 
-    return fftshift(autocorr)
+    The FFT correlation wraps around the box, so it is exact for a periodic
+    structure and mixes opposite faces for a non-periodic one.
+
+    Returns a centered array of odd size (2*h+1) per axis with zero lag at
+    index h, where h = max_lag (in voxels) or n//2 if max_lag is None.
+    """
+    rho = np.asarray(density_field_3d, dtype=np.float32)
+    rho = rho - rho.mean(dtype=np.float64)
+    var = rho.var(dtype=np.float64)
+
+    spec = rfftn(rho, workers=-1)
+    del rho
+    spec = (spec.real**2 + spec.imag**2).astype(np.complex64)
+    autocorr = irfftn(spec, s=density_field_3d.shape, workers=-1)
+    del spec
+    autocorr /= np.prod(density_field_3d.shape) * var
+
+    # Centered crop by modular indexing (no full fftshift copy)
+    idx = []
+    for n in autocorr.shape:
+        h = n // 2 if max_lag is None else min(int(max_lag), n // 2)
+        idx.append(np.arange(-h, h + 1) % n)
+    return autocorr[np.ix_(*idx)]
 
 # Extract radial profile C_r(δr)
-def radial_profile(data, L:float, bins=50):
-    nx, ny, nz = data.shape
-    dx =L / nx
+def radial_profile(autocorr, dx:float, dr=None, r_max=None):
+    """Shell-average a centered autocorrelation (zero lag at shape//2).
 
-    # Build coordinate grid in physical units
-    x = np.arange(nx) - (nx - 1) / 2
-    y = np.arange(ny) - (ny - 1) / 2
-    z = np.arange(nz) - (nz - 1) / 2
-    X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
-    r = dx * np.sqrt(X**2 + Y**2 + Z**2)
+    dx: voxel size; dr: shell width (default dx); r_max: largest radius kept
+    (default: the largest radius fully inside the array).
+    Returns the mean radius of the voxels in each shell (not the bin center)
+    and the mean C in that shell; empty shells are dropped.
+    """
+    dr = dx if dr is None else dr
+    centers = [n // 2 for n in autocorr.shape]
+    if r_max is None:
+        r_max = dx * min(centers)
+    axes = [dx * (np.arange(n) - c) for n, c in zip(autocorr.shape, centers)]
+    X, Y, Z = np.ix_(*axes)
+    r = np.sqrt(X**2 + Y**2 + Z**2)
 
-    # Flatten
-    r = r.flatten()
-    data = data.flatten()
-    # Bin and average
-    r_bins = np.linspace(0, r.max(), bins + 1)
-    r_vals = 0.5 * (r_bins[1:] + r_bins[:-1])
-    digitized = np.digitize(r, r_bins)
-    radial_C = np.array([data[digitized == i].mean() if np.any(digitized == i) else 0.0
-                         for i in range(1, bins + 1)])
-    return r_vals, radial_C
+    keep = r <= r_max
+    k = (r[keep] / dr).astype(np.int64)
+    counts = np.bincount(k)
+    C_sum = np.bincount(k, weights=autocorr[keep])
+    r_sum = np.bincount(k, weights=r[keep])
+    filled = counts > 0
+    return r_sum[filled] / counts[filled], C_sum[filled] / counts[filled]
 
 # Compute normalized autocorrelation
-def get_a_from_h5_eps(file:str, L:float,plot_correlation:bool=True):
+def get_a_from_h5_eps(file:str, L:float, plot_correlation:bool=True, dr=None, r_max=None):
+    """Length unit a = position of the first peak of the radial autocorrelation
+    of the permittivity distribution.
+
+    file: h5 with an 'epsilon' voxel array spanning a cube of side L.
+    dr: radial shell width (default: one voxel). Shells much wider than a
+        voxel bias the peak (50 shells over the box diagonal put it ~20% too far out).
+    r_max: largest radius analysed (default: min(L/2, 10 voxel-peaks worth)).
+    """
     with h5py.File(file, 'r') as f:
-        permittivity_raw = np.array(f['epsilon'])
-        density_normalized = (permittivity_raw - permittivity_raw.min()) / (permittivity_raw.max() - permittivity_raw.min())
+        permittivity_raw = np.asarray(f['epsilon'][()], dtype=np.float32)
 
-        autocorr = compute_normalized_autocorrelation_fft(density_normalized)
-        r_vals, C_r = radial_profile(autocorr,L=L)
-        r_vals = r_vals[~np.isnan(C_r)]
-        C_r = C_r[~np.isnan(C_r)]
-        f_interp = interp1d(r_vals, C_r, kind='cubic')  # 'cubic' or 'quadratic' for smooth curves
-        x_fine = np.linspace(r_vals.min(), r_vals.max(), 20000)
-        y_fine = f_interp(x_fine)
-        local_maxima_indices = argrelextrema(y_fine, np.greater)[0]
+    shape = permittivity_raw.shape
+    dx = L / shape[0]
+    if not np.allclose(np.array(shape) * dx, L):
+        print(f"Warning: grid {shape} is not cubic; using dx = L/nx = {dx}")
 
-        print(f"First maximum at x = {x_fine[local_maxima_indices[0]]}, y = {y_fine[local_maxima_indices[0]]}")
-        a=x_fine[local_maxima_indices[0]]
-        if plot_correlation:
-            plt.plot(r_vals/a, C_r , 'o', label='Original points')
-            plt.plot(x_fine/a, y_fine, '-', label='Interpolated curve')
-            plt.plot(x_fine[local_maxima_indices]/a, y_fine[local_maxima_indices], 'rx', label='Local maxima')
-            plt.xlabel(r'$r/a$')
-            plt.ylabel(r'$C_r(\delta r)$')
-            plt.title(f'Normalized Radial Autocorrelation a={a:.2f}')
-            plt.grid(True)
-            plt.legend()
-            plt.show()
+    density_normalized = (permittivity_raw - permittivity_raw.min()) / (permittivity_raw.max() - permittivity_raw.min())
+    del permittivity_raw
 
-        return a,x_fine,y_fine
+    r_max = L / 2 if r_max is None else min(r_max, L / 2)
+    max_lag = int(np.ceil(r_max / dx)) + 1
+    autocorr = compute_normalized_autocorrelation_fft(density_normalized, max_lag=max_lag)
+    del density_normalized
+    r_vals, C_r = radial_profile(autocorr, dx=dx, dr=dr, r_max=r_max)
+    del autocorr
+
+    f_interp = interp1d(r_vals, C_r, kind='cubic')
+    x_fine = np.linspace(r_vals.min(), r_vals.max(), 20000)
+    y_fine = f_interp(x_fine)
+
+    # First peak = first local maximum after the first local minimum (skips
+    # discretisation wiggles on the initial decay from C(0)=1)
+    local_minima_indices = argrelextrema(y_fine, np.less)[0]
+    local_maxima_indices = argrelextrema(y_fine, np.greater)[0]
+    if len(local_minima_indices) == 0:
+        raise RuntimeError("No minimum found in C(r); increase r_max.")
+    after_min = local_maxima_indices[local_maxima_indices > local_minima_indices[0]]
+    if len(after_min) == 0:
+        raise RuntimeError("No maximum found after the first minimum of C(r); increase r_max.")
+    i_peak = after_min[0]
+    a = x_fine[i_peak]
+    print(f"First maximum at x = {a}, y = {y_fine[i_peak]} (dx = {dx:.4g}, dr = {dx if dr is None else dr:.4g})")
+
+    if plot_correlation:
+        plt.plot(r_vals/a, C_r, 'o', ms=2, label='Shell averages')
+        plt.plot(x_fine/a, y_fine, '-', label='Interpolated curve')
+        plt.plot(x_fine[local_maxima_indices]/a, y_fine[local_maxima_indices], 'rx', label='Local maxima')
+        plt.axvline(1, color='k', lw=0.8, ls='--')
+        plt.xlim(0, min(5, x_fine.max()/a))
+        plt.ylim(1.5*y_fine[x_fine < 5*a].min(), 2.5*y_fine[i_peak])
+        plt.xlabel(r'$r/a$')
+        plt.ylabel(r'$C_r(\delta r)$')
+        plt.title(f'Normalized Radial Autocorrelation a={a:.3f}')
+        plt.grid(True)
+        plt.legend()
+        plt.show()
+
+    return a, x_fine, y_fine
     
 
 def _unwrap_value(data):
